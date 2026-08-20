@@ -24,4 +24,4 @@ jobs:
         with:
           context: .
           push: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}"
-          tags: ghcr.io/idrisovmarat/lab_front:latest
+          tags: ghcr.io/repomz/lab_front:latest
