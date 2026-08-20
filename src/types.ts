@@ -1,0 +1,6 @@
+export type Role = 'patient' | 'doctor';
+export type User = { id: string; email: string; role: Role; full_name: string; specialization?: string; license_number?: string; verified: boolean };
+export type Marker = { name: string; canonical_name: string; value?: number; text_value?: string; unit?: string; reference_min?: number; reference_max?: number; reference_text?: string; status: 'low'|'normal'|'high'|'unknown' };
+export type AIReview = { summary: string; lifestyle: string[]; nutrition: string[]; doctor_needed: boolean; urgency: string; suggested_specialty?: string; disclaimer: string; provider: string };
+export type Analysis = { id: string; owner_id: string; title: string; lab_name?: string; original_name: string; mime_type: string; markers: Marker[]; ai_review: AIReview; status: string; shared_with: string[]; created_at: string };
+export type Consultation = { id: string; analysis_id: string; patient_id: string; doctor_id: string; question: string; reply?: string; status: string; created_at: string };

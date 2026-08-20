@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Lab",
+    "slug": "lab-health",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ru.idrisovmarat.lab",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Камера нужна, чтобы сфотографировать бланк анализа.",
+        "NSPhotoLibraryUsageDescription": "Доступ нужен, чтобы выбрать результат анализа из галереи."
+      }
+    },
+    "android": {
+      "package": "ru.idrisovmarat.lab",
+      "permissions": ["CAMERA"]
+    },
+    "web": { "bundler": "metro", "name": "Lab — мои анализы", "shortName": "Lab", "themeColor": "#196B51", "backgroundColor": "#F7F8F5", "display": "standalone" },
+    "plugins": ["expo-document-picker", "expo-image-picker"]
+  }
+}
