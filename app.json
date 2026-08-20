@@ -7,14 +7,14 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "ru.idrisovmarat.lab",
+      "bundleIdentifier": "ru.repomz.lab",
       "infoPlist": {
         "NSCameraUsageDescription": "Камера нужна, чтобы сфотографировать бланк анализа.",
         "NSPhotoLibraryUsageDescription": "Доступ нужен, чтобы выбрать результат анализа из галереи."
       }
     },
     "android": {
-      "package": "ru.idrisovmarat.lab",
+      "package": "ru.repomz.lab",
       "permissions": ["CAMERA"]
     },
     "web": { "bundler": "metro", "name": "Lab — мои анализы", "shortName": "Lab", "themeColor": "#196B51", "backgroundColor": "#F7F8F5", "display": "standalone" },
