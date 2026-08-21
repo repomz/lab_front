@@ -20,8 +20,13 @@ jobs:
       - uses: docker/login-action@v3
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - uses: docker/login-action@v3
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with: { username: "${{ secrets.DOCKERHUB_USERNAME }}", password: "${{ secrets.DOCKERHUB_TOKEN }}" }
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}"
-          tags: ghcr.io/repomz/lab_front:latest
+          tags: |
+            ghcr.io/repomz/lab_front:latest
+            docker.io/idrisovmarat/lab_front:latest
