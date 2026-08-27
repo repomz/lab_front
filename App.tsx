@@ -26,7 +26,7 @@ import { Analysis, Consultation, Role, User } from "./src/types";
 import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "consultations" | "profile";
-type Asset = { uri: string; name: string; mimeType?: string };
+type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
 const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   home: "home-outline",
   analyses: "flask-outline",
@@ -661,6 +661,7 @@ function UploadModal({
           uri: x.uri,
           name: x.fileName || `analysis-${Date.now()}.jpg`,
           mimeType: x.mimeType || "image/jpeg",
+          file: x.file,
         });
     }
   }
@@ -676,6 +677,7 @@ function UploadModal({
           uri: x.uri,
           name: x.fileName || `analysis-${Date.now()}.jpg`,
           mimeType: x.mimeType || "image/jpeg",
+          file: x.file,
         });
     }
   }
@@ -686,7 +688,13 @@ function UploadModal({
     });
     if (!r.canceled) {
       const x = r.assets[0];
-      if (x) setAsset({ uri: x.uri, name: x.name, mimeType: x.mimeType });
+      if (x)
+        setAsset({
+          uri: x.uri,
+          name: x.name,
+          mimeType: x.mimeType,
+          file: x.file,
+        });
     }
   }
   async function submit() {
