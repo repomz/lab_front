@@ -147,10 +147,15 @@ export default function App() {
         visible={!!upload}
         seed={upload}
         onClose={() => setUpload(null)}
-        onDone={async () => {
+        onDone={async (result) => {
           setUpload(null);
-          await refresh();
           setTab("analyses");
+          setSelected(result);
+          try {
+            await refresh();
+          } catch {
+            setError("Результат распознан, но список анализов не обновился.");
+          }
         }}
       />
       <Detail
@@ -252,7 +257,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
                 />
               </View>
               <Field
-                label="Имя и фамилия"
+                label="Имя (необязательно)"
                 value={form.fullName}
                 onChangeText={(v: string) => setForm({ ...form, fullName: v })}
               />
@@ -278,8 +283,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
             </>
           )}
           <Field
-            label="Электронная почта"
-            keyboardType="email-address"
+            label="Логин"
             autoCapitalize="none"
             value={form.email}
             onChangeText={(v: string) => setForm({ ...form, email: v })}
@@ -484,6 +488,7 @@ function AnalysisCard({
   const out = item.markers.filter(
     (m) => m.status === "high" || m.status === "low",
   ).length;
+  const recognized = item.status === "ready" && item.markers.length > 0;
   return (
     <Pressable
       style={({ pressed }) => [s.analysisCard, pressed && { opacity: 0.78 }]}
@@ -499,11 +504,23 @@ function AnalysisCard({
         <Text style={s.analysisMeta}>
           {date(item.created_at)} · {item.markers.length} показателей
         </Text>
-        <View style={[s.pill, out ? s.pillWarn : s.pillOk]}>
-          <Text style={[s.pillText, out ? { color: colors.amber } : undefined]}>
-            {out ? `${out} вне диапазона` : "Без отмеченных отклонений"}
+        <View style={[s.pill, out || !recognized ? s.pillWarn : s.pillOk]}>
+          <Text
+            style={[
+              s.pillText,
+              out || !recognized ? { color: colors.amber } : undefined,
+            ]}
+          >
+            {!recognized
+              ? item.status === "failed"
+                ? "Ошибка распознавания"
+                : "Нужно проверить документ"
+              : out
+                ? `${out} вне диапазона`
+                : "Распознано без отклонений"}
           </Text>
         </View>
+        <Text style={s.openResult}>Открыть результат →</Text>
       </View>
       <Ionicons name="chevron-forward" size={20} color={colors.muted} />
     </Pressable>
@@ -631,7 +648,7 @@ function UploadModal({
   visible: boolean;
   seed: Asset | null;
   onClose: () => void;
-  onDone: () => void;
+  onDone: (result: Analysis) => void;
 }) {
   const [asset, setAsset] = useState<Asset | null>(null);
   const [title, setTitle] = useState("");
@@ -705,8 +722,11 @@ function UploadModal({
     setBusy(true);
     setError("");
     try {
-      await api.upload(asset, title || asset.name.replace(/\.[^.]+$/, ""));
-      onDone();
+      const result = await api.upload(
+        asset,
+        title || asset.name.replace(/\.[^.]+$/, ""),
+      );
+      onDone(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
     } finally {
@@ -788,6 +808,8 @@ function Detail({
   onChanged: () => void;
   onError: (x: string) => void;
 }) {
+  const { width } = useWindowDimensions();
+  const compact = width < 520;
   const [doctors, setDoctors] = useState<User[]>([]);
   const [doctor, setDoctor] = useState("");
   const [question, setQuestion] = useState(
@@ -857,6 +879,32 @@ function Detail({
           <ScrollView contentContainerStyle={s.detailBody}>
             <View
               style={[
+                s.recognitionState,
+                active.status !== "ready" && s.recognitionStateWarn,
+              ]}
+            >
+              <Ionicons
+                name={active.status === "ready" ? "checkmark-circle" : "alert-circle"}
+                size={21}
+                color={active.status === "ready" ? colors.brand : colors.amber}
+              />
+              <View style={s.recognitionStateCopy}>
+                <Text style={s.recognitionStateTitle}>
+                  {active.status === "ready"
+                    ? `Распознано показателей: ${active.markers.length}`
+                    : active.status === "failed"
+                      ? "Распознавание не удалось"
+                      : "Распознавание требует проверки"}
+                </Text>
+                <Text style={s.analysisMeta}>
+                  {active.status === "ready"
+                    ? "Ниже можно посмотреть каждое найденное значение."
+                    : "Оригинал сохранён. Загрузите более чёткое фото или PDF."}
+                </Text>
+              </View>
+            </View>
+            <View
+              style={[
                 s.reviewBox,
                 abnormalities.length
                   ? { backgroundColor: colors.amberSoft }
@@ -877,7 +925,10 @@ function Detail({
             <Text style={s.detailSection}>Показатели</Text>
             {active.markers.length ? (
               active.markers.map((m, i) => (
-                <View key={`${m.name}-${i}`} style={s.marker}>
+                <View
+                  key={`${m.name}-${i}`}
+                  style={[s.marker, compact && s.markerCompact]}
+                >
                   <View style={{ flex: 1 }}>
                     <Text style={s.markerName}>{m.name}</Text>
                     <Text style={s.analysisMeta}>
@@ -888,21 +939,44 @@ function Detail({
                         "Референс не указан"}
                     </Text>
                   </View>
-                  <Text style={s.markerValue}>
-                    {m.value ?? m.text_value} {m.unit}
-                  </Text>
-                  <Status value={m.status} />
+                  <View
+                    style={[
+                      s.markerResult,
+                      compact && s.markerResultCompact,
+                    ]}
+                  >
+                    <Text style={s.markerValue}>
+                      {m.value ?? m.text_value} {m.unit}
+                    </Text>
+                    <Status value={m.status} />
+                  </View>
                 </View>
               ))
             ) : (
               <Empty
                 icon="scan-outline"
                 title="Показатели не распознаны"
-                text="Оригинал сохранён. Проверьте качество снимка или добавьте более чёткий файл."
+                text="Ниже показан текст, который удалось прочитать. Проверьте качество снимка или добавьте более чёткий файл."
               />
             )}
+            <Text style={s.detailSection}>Распознанный текст</Text>
+            <View style={s.ocrBox}>
+              {active.ocr_text?.trim() ? (
+                <Text selectable style={s.ocrText}>
+                  {active.ocr_text.trim()}
+                </Text>
+              ) : (
+                <View style={s.ocrEmpty}>
+                  <Ionicons name="scan-outline" size={22} color={colors.amber} />
+                  <Text style={s.ocrEmptyText}>
+                    Текст из документа получить не удалось. Попробуйте более
+                    чёткое фото без бликов или загрузите PDF.
+                  </Text>
+                </View>
+              )}
+            </View>
             <Text style={s.detailSection}>Действия</Text>
-            <View style={s.actionRow}>
+            <View style={[s.actionRow, compact && s.actionRowCompact]}>
               <Action icon="mail-outline" label="По почте" onPress={email} />
               <Action
                 icon="share-outline"
@@ -1285,10 +1359,10 @@ const date = (x: string) =>
   }).format(new Date(x));
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.paper },
-  shell: { flex: 1, flexDirection: "row" },
-  main: { flex: 1, minWidth: 0 },
-  content: { flex: 1 },
+  safe: { flex: 1, width: "100%", backgroundColor: colors.paper, overflow: "hidden" },
+  shell: { flex: 1, width: "100%", flexDirection: "row", overflow: "hidden" },
+  main: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden" },
+  content: { flex: 1, minWidth: 0, maxWidth: "100%" },
   top: {
     height: 94,
     paddingHorizontal: 28,
@@ -1515,6 +1589,12 @@ const s = StyleSheet.create({
   pillOk: { backgroundColor: colors.mint },
   pillWarn: { backgroundColor: colors.amberSoft },
   pillText: { fontSize: 11, fontWeight: "700", color: colors.brand },
+  openResult: {
+    marginTop: 9,
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.brand,
+  },
   empty: {
     padding: 42,
     alignItems: "center",
@@ -1744,6 +1824,17 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   detailBody: { padding: 24, paddingBottom: 60 },
+  recognitionState: {
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: colors.mint,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  recognitionStateWarn: { backgroundColor: colors.amberSoft },
+  recognitionStateCopy: { flex: 1, minWidth: 0 },
+  recognitionStateTitle: { fontSize: 14, fontWeight: "800", color: colors.ink },
   reviewBox: { padding: 18, borderRadius: 18, backgroundColor: colors.mint },
   reviewHead: {
     flexDirection: "row",
@@ -1774,8 +1865,47 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  markerCompact: {
+    alignItems: "flex-start",
+    paddingVertical: 12,
+    flexWrap: "wrap",
+  },
+  markerResult: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+    flexShrink: 1,
+  },
+  markerResultCompact: {
+    width: "100%",
+    justifyContent: "space-between",
+  },
   markerName: { fontSize: 14, fontWeight: "600", color: colors.ink },
   markerValue: { fontSize: 15, fontWeight: "800", color: colors.ink },
+  ocrBox: {
+    padding: 15,
+    borderRadius: 15,
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  ocrText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: colors.ink,
+  },
+  ocrEmpty: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  ocrEmptyText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.muted,
+  },
   status: {
     paddingHorizontal: 8,
     paddingVertical: 5,
@@ -1785,8 +1915,10 @@ const s = StyleSheet.create({
   statusBad: { backgroundColor: colors.amberSoft },
   statusText: { fontSize: 10, fontWeight: "800", color: colors.brand },
   actionRow: { flexDirection: "row", gap: 10 },
+  actionRowCompact: { flexWrap: "wrap" },
   action: {
     minWidth: 105,
+    flexGrow: 1,
     minHeight: 70,
     borderWidth: 1,
     borderColor: colors.line,
