@@ -763,7 +763,8 @@ function UploadModal({
           </View>
           <Text style={s.cardHint}>
             Сфотографируйте бланк или выберите PDF/изображение. Хорошее
-            освещение повышает точность распознавания.
+            освещение повышает точность распознавания. При подключённом ИИ
+            распознанный текст обрабатывается сервисом DeepSeek.
           </Text>
           <View style={s.sourceRow}>
             <Source icon="camera-outline" label="Камера" onPress={camera} />
@@ -925,6 +926,9 @@ function Detail({
                   {active.status === "ready"
                     ? "Ниже можно посмотреть каждое найденное значение."
                     : "Оригинал сохранён. Загрузите более чёткое фото или PDF."}
+                </Text>
+                <Text style={s.providerText}>
+                  Обработка: {active.ai_review.provider === "deepseek" ? "DeepSeek + локальный OCR" : "локальный OCR"}
                 </Text>
               </View>
             </View>
@@ -1934,6 +1938,12 @@ const s = StyleSheet.create({
   recognitionStateWarn: { backgroundColor: colors.amberSoft },
   recognitionStateCopy: { flex: 1, minWidth: 0 },
   recognitionStateTitle: { fontSize: 14, fontWeight: "800", color: colors.ink },
+  providerText: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.brand,
+  },
   reviewBox: { padding: 18, borderRadius: 18, backgroundColor: colors.mint },
   reviewHead: {
     flexDirection: "row",
