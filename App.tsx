@@ -307,6 +307,8 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
             disabled={busy}
           />
           <Pressable
+            accessibilityRole="button"
+            style={s.textButton}
             onPress={() => {
               setMode(mode === "login" ? "register" : "login");
               setError("");
@@ -1294,6 +1296,7 @@ function Section({
           <Pressable
             accessibilityRole="button"
             hitSlop={10}
+            style={s.linkButton}
             onPress={onAction}
           >
             <Text style={s.link}>{action} →</Text>
@@ -1814,7 +1817,18 @@ const s = StyleSheet.create({
     textAlign: "center",
     color: colors.brand,
     fontWeight: "700",
-    marginTop: 18,
+  },
+  textButton: {
+    minHeight: 48,
+    marginTop: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  linkButton: {
+    minHeight: 44,
+    minWidth: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   error: { color: colors.red, fontSize: 13, marginBottom: 12 },
   banner: {
