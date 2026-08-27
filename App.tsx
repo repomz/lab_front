@@ -491,6 +491,8 @@ function AnalysisCard({
   const recognized = item.status === "ready" && item.markers.length > 0;
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Открыть результат: ${item.title}`}
       style={({ pressed }) => [s.analysisCard, pressed && { opacity: 0.78 }]}
       onPress={onPress}
     >
@@ -650,6 +652,8 @@ function UploadModal({
   onClose: () => void;
   onDone: (result: Analysis) => void;
 }) {
+  const { width } = useWindowDimensions();
+  const compact = width < 520;
   const [asset, setAsset] = useState<Asset | null>(null);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -741,11 +745,17 @@ function UploadModal({
       onRequestClose={onClose}
     >
       <View style={s.modalBackdrop}>
-        <View style={s.uploadSheet}>
+        <View style={[s.uploadSheet, compact && s.uploadSheetCompact]}>
           <View style={s.sheetHandle} />
           <View style={s.rowBetween}>
             <Text style={s.cardTitle}>Добавить результат</Text>
-            <Pressable onPress={onClose}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Закрыть"
+              hitSlop={10}
+              style={s.iconButton}
+              onPress={onClose}
+            >
               <Ionicons name="close" size={26} color={colors.ink} />
             </Pressable>
           </View>
@@ -872,11 +882,24 @@ function Detail({
               <Text style={s.eyebrow}>{date(active.created_at)}</Text>
               <Text style={s.cardTitle}>{active.title}</Text>
             </View>
-            <Pressable onPress={onClose}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Закрыть"
+              hitSlop={10}
+              style={s.iconButton}
+              onPress={onClose}
+            >
               <Ionicons name="close" size={28} />
             </Pressable>
           </View>
-          <ScrollView contentContainerStyle={s.detailBody}>
+          <ScrollView
+            contentContainerStyle={[
+              s.detailBody,
+              compact && s.detailBodyCompact,
+            ]}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+          >
             <View
               style={[
                 s.recognitionState,
@@ -1072,6 +1095,8 @@ function Sidebar({
         {(Object.keys(labels) as Tab[]).map((t) => (
           <Pressable
             key={t}
+            accessibilityRole="button"
+            accessibilityState={{ selected: tab === t }}
             onPress={() => onTab(t)}
             style={[s.navItem, tab === t && s.navActive]}
           >
@@ -1101,7 +1126,17 @@ function Bottom({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   return (
     <View style={s.bottom}>
       {(Object.keys(labels) as Tab[]).map((t) => (
-        <Pressable key={t} style={s.bottomItem} onPress={() => onTab(t)}>
+        <Pressable
+          key={t}
+          accessibilityRole="button"
+          accessibilityState={{ selected: tab === t }}
+          style={({ pressed }) => [
+            s.bottomItem,
+            tab === t && s.bottomItemActive,
+            pressed && { opacity: 0.68 },
+          ]}
+          onPress={() => onTab(t)}
+        >
           <Ionicons
             name={icon[t]}
             size={23}
@@ -1124,6 +1159,7 @@ function Field(props: any) {
         label={undefined}
         style={s.input}
         placeholderTextColor="#9AA59F"
+        autoCorrect={props.autoCorrect ?? false}
       />
     </View>
   );
@@ -1145,6 +1181,7 @@ function Button({
 }) {
   return (
     <Pressable
+      accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -1180,6 +1217,8 @@ function Segment({
 }) {
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
       onPress={onPress}
       style={[s.segmentItem, active && s.segmentActive]}
     >
@@ -1252,7 +1291,11 @@ function Section({
       <View style={s.rowBetween}>
         <Text style={s.sectionTitle}>{title}</Text>
         {action && (
-          <Pressable onPress={onAction}>
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={10}
+            onPress={onAction}
+          >
             <Text style={s.link}>{action} →</Text>
           </Pressable>
         )}
@@ -1288,7 +1331,11 @@ function Source({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={s.source}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [s.source, pressed && s.pressablePressed]}
+    >
       <Ionicons name={icon} size={28} color={colors.brand} />
       <Text style={s.sourceText}>{label}</Text>
     </Pressable>
@@ -1304,7 +1351,11 @@ function Action({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={s.action}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [s.action, pressed && s.pressablePressed]}
+    >
       <Ionicons name={icon} size={23} color={colors.brand} />
       <Text style={s.sourceText}>{label}</Text>
     </Pressable>
@@ -1330,7 +1381,12 @@ function Banner({ text, onClose }: { text: string; onClose: () => void }) {
   return (
     <View style={s.banner}>
       <Text style={s.bannerText}>{text}</Text>
-      <Pressable onPress={onClose}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Закрыть сообщение"
+        hitSlop={12}
+        onPress={onClose}
+      >
         <Ionicons name="close" size={18} color={colors.red} />
       </Pressable>
     </View>
@@ -1370,10 +1426,12 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: colors.paper,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
   },
   topCompact: {
-    height: 76,
-    paddingHorizontal: 18,
+    height: 68,
+    paddingHorizontal: 16,
     backgroundColor: colors.paper,
   },
   eyebrow: {
@@ -1446,22 +1504,27 @@ const s = StyleSheet.create({
   },
   sidebarName: { fontWeight: "700", color: colors.ink },
   bottom: {
-    height: 76,
+    minHeight: 78,
     flexDirection: "row",
     backgroundColor: colors.white,
     borderTopWidth: 1,
     borderTopColor: colors.line,
-    paddingBottom: 9,
-    paddingTop: 5,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    paddingTop: 7,
+    gap: 4,
     ...shadow,
   },
   bottomItem: {
     flex: 1,
+    minHeight: 58,
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
+    gap: 4,
+    borderRadius: 16,
   },
-  bottomText: { fontSize: 10, fontWeight: "600", color: colors.muted },
+  bottomItemActive: { backgroundColor: colors.mint },
+  bottomText: { fontSize: 11, fontWeight: "700", color: colors.muted },
   scroll: {
     padding: 28,
     paddingBottom: 110,
@@ -1470,7 +1533,7 @@ const s = StyleSheet.create({
     width: "100%",
     alignSelf: "center",
   },
-  scrollCompact: { padding: 16, paddingTop: 8, paddingBottom: 32, gap: 18 },
+  scrollCompact: { padding: 16, paddingTop: 12, paddingBottom: 28, gap: 20 },
   welcome: {
     backgroundColor: colors.brandDark,
     borderRadius: 28,
@@ -1478,7 +1541,7 @@ const s = StyleSheet.create({
     flexDirection: "row",
     overflow: "hidden",
   },
-  welcomeCompact: { borderRadius: 24, padding: 22 },
+  welcomeCompact: { borderRadius: 22, padding: 20 },
   welcomeOver: {
     fontSize: 11,
     fontWeight: "800",
@@ -1510,7 +1573,7 @@ const s = StyleSheet.create({
     borderRadius: 65,
   },
   metrics: { flexDirection: "row", gap: 16, flexWrap: "wrap" },
-  metricsCompact: { gap: 8, flexWrap: "nowrap" },
+  metricsCompact: { gap: 10, flexWrap: "wrap" },
   metric: {
     flexGrow: 1,
     minWidth: 200,
@@ -1524,13 +1587,13 @@ const s = StyleSheet.create({
   },
   metricCompact: {
     flex: 1,
-    minWidth: 0,
+    minWidth: "47%",
     flexGrow: 1,
-    padding: 12,
+    padding: 14,
     borderRadius: 18,
-    flexDirection: "column",
-    alignItems: "flex-start",
-    gap: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   metricIcon: {
     width: 46,
@@ -1540,12 +1603,12 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  metricIconCompact: { width: 34, height: 34, borderRadius: 11 },
+  metricIconCompact: { width: 38, height: 38, borderRadius: 12 },
   metricCopyCompact: { minWidth: 0, width: "100%" },
   metricValue: { fontSize: 25, fontWeight: "800", color: colors.ink },
-  metricValueCompact: { fontSize: 22 },
+  metricValueCompact: { fontSize: 21 },
   metricLabel: { fontSize: 13, color: colors.muted },
-  metricLabelCompact: { fontSize: 10, lineHeight: 13 },
+  metricLabelCompact: { fontSize: 11, lineHeight: 14 },
   section: { gap: 14 },
   sectionTitle: { fontSize: 20, fontWeight: "700", color: colors.ink },
   sectionIntro: { fontSize: 15, color: colors.muted },
@@ -1561,7 +1624,8 @@ const s = StyleSheet.create({
   analysisCard: {
     backgroundColor: colors.white,
     borderRadius: 20,
-    padding: 17,
+    padding: 16,
+    minHeight: 96,
     flexDirection: "row",
     alignItems: "center",
     gap: 15,
@@ -1711,7 +1775,8 @@ const s = StyleSheet.create({
   },
   segmentItem: {
     flex: 1,
-    padding: 11,
+    minHeight: 46,
+    paddingHorizontal: 10,
     borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
@@ -1721,20 +1786,20 @@ const s = StyleSheet.create({
   segmentActive: { backgroundColor: colors.white, ...shadow },
   segmentText: { fontSize: 13, fontWeight: "600", color: colors.muted },
   field: { gap: 7, marginBottom: 14 },
-  label: { fontSize: 12, fontWeight: "700", color: colors.ink },
+  label: { fontSize: 13, fontWeight: "700", color: colors.ink },
   input: {
-    height: 48,
+    minHeight: 52,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: "#FBFCFA",
-    borderRadius: 13,
-    paddingHorizontal: 14,
-    fontSize: 15,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    fontSize: 16,
     color: colors.ink,
   },
   button: {
-    minHeight: 48,
-    borderRadius: 14,
+    minHeight: 52,
+    borderRadius: 15,
     backgroundColor: colors.brand,
     alignItems: "center",
     justifyContent: "center",
@@ -1742,9 +1807,9 @@ const s = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 20,
   },
-  buttonCompact: { alignSelf: "flex-start", minHeight: 42 },
+  buttonCompact: { alignSelf: "flex-start", minHeight: 44 },
   buttonGhost: { backgroundColor: colors.mint, marginTop: 26 },
-  buttonText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  buttonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   switchText: {
     textAlign: "center",
     color: colors.brand,
@@ -1753,9 +1818,9 @@ const s = StyleSheet.create({
   },
   error: { color: colors.red, fontSize: 13, marginBottom: 12 },
   banner: {
-    marginHorizontal: 28,
-    padding: 13,
-    borderRadius: 12,
+    marginHorizontal: 16,
+    padding: 14,
+    borderRadius: 14,
     backgroundColor: colors.redSoft,
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1776,6 +1841,11 @@ const s = StyleSheet.create({
     width: "100%",
     alignSelf: "center",
   },
+  uploadSheetCompact: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+  },
   sheetHandle: {
     width: 48,
     height: 5,
@@ -1787,7 +1857,7 @@ const s = StyleSheet.create({
   sourceRow: { flexDirection: "row", gap: 10, marginVertical: 12 },
   source: {
     flex: 1,
-    minHeight: 82,
+    minHeight: 88,
     borderRadius: 16,
     backgroundColor: colors.paper,
     alignItems: "center",
@@ -1817,13 +1887,28 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   detailHeader: {
-    padding: 22,
+    minHeight: 72,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.line,
     flexDirection: "row",
     alignItems: "center",
   },
   detailBody: { padding: 24, paddingBottom: 60 },
+  detailBodyCompact: { padding: 16, paddingBottom: 44 },
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.paper,
+  },
+  pressablePressed: {
+    opacity: 0.72,
+    backgroundColor: colors.mint,
+  },
   recognitionState: {
     padding: 14,
     borderRadius: 16,
@@ -1919,7 +2004,7 @@ const s = StyleSheet.create({
   action: {
     minWidth: 105,
     flexGrow: 1,
-    minHeight: 70,
+    minHeight: 76,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 15,
