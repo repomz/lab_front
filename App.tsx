@@ -28,7 +28,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "consultations" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.2.1";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.2.2";
 const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   home: "home-outline",
   analyses: "flask-outline",
@@ -59,6 +59,29 @@ export default function App() {
     const [a, c] = await Promise.all([api.analyses(), api.consultations()]);
     setAnalyses(a);
     setConsultations(c);
+  }
+  function requestDelete(item: Analysis) {
+    const remove = async () => {
+      try {
+        await api.deleteAnalysis(item.id);
+        if (selected?.id === item.id) setSelected(null);
+        await refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Не удалось удалить анализ");
+      }
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm(`Удалить «${item.title}» вместе с исходным файлом?`)) void remove();
+      return;
+    }
+    Alert.alert(
+      "Удалить анализ?",
+      "Карточка и загруженный исходный файл будут удалены без возможности восстановления.",
+      [
+        { text: "Отмена", style: "cancel" },
+        { text: "Удалить", style: "destructive", onPress: () => void remove() },
+      ],
+    );
   }
   useEffect(() => {
     (async () => {
@@ -92,9 +115,9 @@ export default function App() {
         compact={compact}
         user={user}
         analyses={analyses}
-        consultations={consultations}
         onUpload={() => setUpload({ uri: "", name: "" })}
         onOpen={setSelected}
+        onDelete={user.role === "patient" ? requestDelete : undefined}
         onTab={setTab}
       />
     ) : tab === "analyses" ? (
@@ -103,6 +126,7 @@ export default function App() {
         data={analyses}
         doctor={user.role === "doctor"}
         onOpen={setSelected}
+        onDelete={user.role === "patient" ? requestDelete : undefined}
         onUpload={() => setUpload({ uri: "", name: "" })}
       />
     ) : tab === "consultations" ? (
@@ -340,25 +364,19 @@ function Home({
   compact,
   user,
   analyses,
-  consultations,
   onUpload,
   onOpen,
+  onDelete,
   onTab,
 }: {
   compact: boolean;
   user: User;
   analyses: Analysis[];
-  consultations: Consultation[];
   onUpload: () => void;
   onOpen: (a: Analysis) => void;
+  onDelete?: (a: Analysis) => void;
   onTab: (t: Tab) => void;
 }) {
-  const abnormal = analyses.reduce(
-    (n, a) =>
-      n +
-      a.markers.filter((m) => m.status === "high" || m.status === "low").length,
-    0,
-  );
   return (
     <ScrollView contentContainerStyle={[s.scroll, compact && s.scrollCompact]}>
       <LinearGradient
@@ -397,31 +415,6 @@ function Home({
           </View>
         )}
       </LinearGradient>
-      <View style={[s.metrics, compact && s.metricsCompact]}>
-        <Metric
-          compact={compact}
-          label={
-            user.role === "doctor" ? "Доступно анализов" : "Всего анализов"
-          }
-          value={`${analyses.length}`}
-          icon="documents-outline"
-          tone="blue"
-        />
-        <Metric
-          compact={compact}
-          label="Отклонений"
-          value={`${abnormal}`}
-          icon="analytics-outline"
-          tone={abnormal ? "warn" : "normal"}
-        />
-        <Metric
-          compact={compact}
-          label="Консультаций"
-          value={`${consultations.length}`}
-          icon="chatbubble-ellipses-outline"
-          tone="violet"
-        />
-      </View>
       <Section
         title={
           user.role === "doctor"
@@ -434,7 +427,12 @@ function Home({
         {analyses.length ? (
           <View style={s.cardGrid}>
             {analyses.slice(0, 3).map((a) => (
-              <AnalysisCard key={a.id} item={a} onPress={() => onOpen(a)} />
+              <AnalysisCard
+                key={a.id}
+                item={a}
+                onPress={() => onOpen(a)}
+                onDelete={onDelete ? () => onDelete(a) : undefined}
+              />
             ))}
           </View>
         ) : (
@@ -457,12 +455,14 @@ function Analyses({
   data,
   doctor,
   onOpen,
+  onDelete,
   onUpload,
 }: {
   compact: boolean;
   data: Analysis[];
   doctor: boolean;
   onOpen: (a: Analysis) => void;
+  onDelete?: (a: Analysis) => void;
   onUpload: () => void;
 }) {
   return (
@@ -485,7 +485,12 @@ function Analyses({
       {data.length ? (
         <View style={s.cardGrid}>
           {data.map((a) => (
-            <AnalysisCard key={a.id} item={a} onPress={() => onOpen(a)} />
+            <AnalysisCard
+              key={a.id}
+              item={a}
+              onPress={() => onOpen(a)}
+              onDelete={onDelete ? () => onDelete(a) : undefined}
+            />
           ))}
         </View>
       ) : (
@@ -501,9 +506,11 @@ function Analyses({
 function AnalysisCard({
   item,
   onPress,
+  onDelete,
 }: {
   item: Analysis;
   onPress: () => void;
+  onDelete?: () => void;
 }) {
   const out = item.markers.filter(
     (m) => m.status === "high" || m.status === "low",
@@ -565,7 +572,26 @@ function AnalysisCard({
         </View>
         <Text style={s.openResult}>Открыть результат →</Text>
       </View>
-      <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+      <View style={s.analysisCardActions}>
+        {onDelete && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Удалить ${item.title}`}
+            hitSlop={8}
+            style={({ pressed }) => [
+              s.deleteCardButton,
+              pressed && { opacity: 0.6 },
+            ]}
+            onPress={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Ionicons name="trash-outline" size={20} color={colors.coral} />
+          </Pressable>
+        )}
+        <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+      </View>
     </Pressable>
   );
 }
@@ -728,9 +754,18 @@ function UploadModal({
     }
   }
   async function gallery() {
+    if (Platform.OS !== "web") {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError("Разрешите доступ к фотографиям в настройках устройства.");
+        return;
+      }
+    }
     const r = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 1,
+      allowsEditing: false,
+      allowsMultipleSelection: false,
     });
     if (!r.canceled) {
       const x = r.assets[0];
@@ -747,6 +782,7 @@ function UploadModal({
     const r = await DocumentPicker.getDocumentAsync({
       type: ["application/pdf", "image/*"],
       copyToCacheDirectory: true,
+      multiple: false,
     });
     if (!r.canceled) {
       const x = r.assets[0];
@@ -877,9 +913,6 @@ function Detail({
   }, [item, user.role]);
   if (!item) return null;
   const active = item;
-  const abnormalities = active.markers.filter(
-    (m) => m.status === "low" || m.status === "high",
-  );
   async function consult() {
     if (!doctor) {
       onError("Выберите врача.");
@@ -912,7 +945,7 @@ function Detail({
     if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(url);
   }
   async function email() {
-    const body = `Результат: ${active.title}\n\n${active.ai_review.summary}\n\nОткрыть файл: ${api.fileURL(active.id)}`;
+    const body = `Результат: ${active.title}\n\nОткрыть файл: ${api.fileURL(active.id)}`;
     if (await MailComposer.isAvailableAsync())
       await MailComposer.composeAsync({
         subject: `Результаты анализов: ${active.title}`,
@@ -954,56 +987,6 @@ function Detail({
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
           >
-            <View
-              style={[
-                s.recognitionState,
-                active.status !== "ready" && s.recognitionStateWarn,
-              ]}
-            >
-              <Ionicons
-                name={active.status === "ready" ? "checkmark-circle" : "alert-circle"}
-                size={21}
-                color={active.status === "ready" ? colors.brand : colors.amber}
-              />
-              <View style={s.recognitionStateCopy}>
-                <Text style={s.recognitionStateTitle}>
-                  {active.status === "ready"
-                    ? `Распознано показателей: ${active.markers.length}`
-                    : active.status === "failed"
-                      ? "Распознавание не удалось"
-                      : "Распознавание требует проверки"}
-                </Text>
-                <Text style={s.analysisMeta}>
-                  {active.status === "ready"
-                    ? "Ниже можно посмотреть каждое найденное значение."
-                    : active.markers.length
-                      ? "Показатели доступны ниже. Строки с пометкой «проверить» нужно сверить с оригиналом."
-                      : "Оригинал сохранён. Загрузите более чёткое фото или PDF."}
-                </Text>
-                <Text style={s.providerText}>
-                  Обработка: {active.ai_review.provider === "deepseek" ? "DeepSeek + два прохода локального OCR" : "два прохода локального OCR"}
-                </Text>
-              </View>
-            </View>
-            <View
-              style={[
-                s.reviewBox,
-                abnormalities.length
-                  ? { backgroundColor: colors.amberSoft }
-                  : null,
-              ]}
-            >
-              <View style={s.reviewHead}>
-                <Ionicons
-                  name="sparkles"
-                  size={22}
-                  color={abnormalities.length ? colors.amber : colors.brand}
-                />
-                <Text style={s.reviewTitle}>Автоматическая сводка</Text>
-              </View>
-              <Text style={s.body}>{active.ai_review.summary}</Text>
-              <Text style={s.disclaimer}>{active.ai_review.disclaimer}</Text>
-            </View>
             <Text style={s.detailSection}>Показатели</Text>
             {active.markers.length ? (
               active.markers.map((m, i) => (
@@ -1011,7 +994,6 @@ function Detail({
                   key={`${m.name}-${i}`}
                   style={[
                     s.marker,
-                    (m.confidence ?? 1) < 0.7 && s.markerUncertain,
                     compact && s.markerCompact,
                   ]}
                 >
@@ -1024,21 +1006,6 @@ function Detail({
                           .join(" — ") ||
                         "Референс не указан"}
                     </Text>
-                    {m.confidence !== undefined && (
-                      <Text
-                        style={[
-                          s.confidenceText,
-                          m.confidence < 0.7 && s.confidenceTextWarn,
-                        ]}
-                      >
-                        {m.confidence >= 0.9 ? "Высокая" : m.confidence >= 0.7 ? "Средняя" : "Низкая"} уверенность · {Math.round(m.confidence * 100)}%
-                      </Text>
-                    )}
-                    {m.warnings?.map((warning, warningIndex) => (
-                      <Text key={`${warning}-${warningIndex}`} style={s.markerWarning}>
-                        {warning}
-                      </Text>
-                    ))}
                   </View>
                   <View
                     style={[
@@ -1057,25 +1024,9 @@ function Detail({
               <Empty
                 icon="scan-outline"
                 title="Показатели не распознаны"
-                text="Ниже показан текст, который удалось прочитать. Проверьте качество снимка или добавьте более чёткий файл."
+                text="Проверьте качество снимка или добавьте более чёткий файл."
               />
             )}
-            <Text style={s.detailSection}>Распознанный текст</Text>
-            <View style={s.ocrBox}>
-              {active.ocr_text?.trim() ? (
-                <Text selectable style={s.ocrText}>
-                  {active.ocr_text.trim()}
-                </Text>
-              ) : (
-                <View style={s.ocrEmpty}>
-                  <Ionicons name="scan-outline" size={22} color={colors.amber} />
-                  <Text style={s.ocrEmptyText}>
-                    Текст из документа получить не удалось. Попробуйте более
-                    чёткое фото без бликов или загрузите PDF.
-                  </Text>
-                </View>
-              )}
-            </View>
             <Text style={s.detailSection}>Действия</Text>
             {user.role === "patient" && (
               <Button
@@ -1318,58 +1269,6 @@ function Segment({
         {label}
       </Text>
     </Pressable>
-  );
-}
-function Metric({
-  compact,
-  label,
-  value,
-  icon,
-  tone,
-}: {
-  compact?: boolean;
-  label: string;
-  value: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  tone?: string;
-}) {
-  return (
-    <View style={[s.metric, compact && s.metricCompact]}>
-      <View
-        style={[
-          s.metricIcon,
-          compact && s.metricIconCompact,
-          tone === "warn" && { backgroundColor: colors.amberSoft },
-          tone === "blue" && { backgroundColor: colors.blueSoft },
-          tone === "violet" && { backgroundColor: colors.violetSoft },
-        ]}
-      >
-        <Ionicons
-          name={icon}
-          size={23}
-          color={
-            tone === "warn"
-              ? colors.amber
-              : tone === "violet"
-                ? colors.violet
-                : tone === "blue"
-                  ? colors.blue
-                  : colors.aqua
-          }
-        />
-      </View>
-      <View style={compact && s.metricCopyCompact}>
-        <Text style={[s.metricValue, compact && s.metricValueCompact]}>
-          {value}
-        </Text>
-        <Text
-          style={[s.metricLabel, compact && s.metricLabelCompact]}
-          numberOfLines={2}
-        >
-          {label}
-        </Text>
-      </View>
-    </View>
   );
 }
 function Section({
@@ -1678,43 +1577,6 @@ const s = StyleSheet.create({
     top: -105,
     backgroundColor: "#A78BFA28",
   },
-  metrics: { flexDirection: "row", gap: 16, flexWrap: "wrap" },
-  metricsCompact: { gap: 10, flexWrap: "wrap" },
-  metric: {
-    flexGrow: 1,
-    minWidth: 200,
-    backgroundColor: colors.white,
-    borderRadius: 20,
-    padding: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    ...shadow,
-  },
-  metricCompact: {
-    flex: 1,
-    minWidth: "47%",
-    flexGrow: 1,
-    padding: 14,
-    borderRadius: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  metricIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 15,
-    backgroundColor: colors.mint,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  metricIconCompact: { width: 38, height: 38, borderRadius: 12 },
-  metricCopyCompact: { minWidth: 0, width: "100%" },
-  metricValue: { fontSize: 25, fontWeight: "800", color: colors.ink },
-  metricValueCompact: { fontSize: 21 },
-  metricLabel: { fontSize: 13, color: colors.muted },
-  metricLabelCompact: { fontSize: 11, lineHeight: 14 },
   section: { gap: 14 },
   sectionTitle: { fontSize: 20, fontWeight: "700", color: colors.ink },
   sectionIntro: { fontSize: 15, color: colors.muted },
@@ -1779,6 +1641,19 @@ const s = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: colors.brand,
+  },
+  analysisCardActions: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  deleteCardButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.coralSoft,
   },
   empty: {
     padding: 42,
@@ -2068,38 +1943,7 @@ const s = StyleSheet.create({
     opacity: 0.72,
     backgroundColor: colors.mint,
   },
-  recognitionState: {
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: colors.mint,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  recognitionStateWarn: { backgroundColor: colors.amberSoft },
-  recognitionStateCopy: { flex: 1, minWidth: 0 },
-  recognitionStateTitle: { fontSize: 14, fontWeight: "800", color: colors.ink },
-  providerText: {
-    marginTop: 6,
-    fontSize: 11,
-    fontWeight: "700",
-    color: colors.brand,
-  },
-  reviewBox: { padding: 18, borderRadius: 18, backgroundColor: colors.mint },
-  reviewHead: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  reviewTitle: { fontWeight: "800", color: colors.ink },
   body: { fontSize: 14, lineHeight: 21, color: colors.ink },
-  disclaimer: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: colors.muted,
-    marginTop: 12,
-  },
   detailSection: {
     fontSize: 17,
     fontWeight: "800",
@@ -2114,12 +1958,6 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-  },
-  markerUncertain: {
-    marginHorizontal: -10,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    backgroundColor: colors.amberSoft,
   },
   markerCompact: {
     alignItems: "flex-start",
@@ -2139,32 +1977,6 @@ const s = StyleSheet.create({
   },
   markerName: { fontSize: 14, fontWeight: "600", color: colors.ink },
   markerValue: { fontSize: 15, fontWeight: "800", color: colors.ink },
-  confidenceText: { marginTop: 4, fontSize: 11, fontWeight: "700", color: colors.aqua },
-  confidenceTextWarn: { color: colors.amber },
-  markerWarning: { marginTop: 3, fontSize: 11, lineHeight: 15, color: colors.amber },
-  ocrBox: {
-    padding: 15,
-    borderRadius: 15,
-    backgroundColor: colors.paper,
-    borderWidth: 1,
-    borderColor: colors.line,
-  },
-  ocrText: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: colors.ink,
-  },
-  ocrEmpty: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  ocrEmptyText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.muted,
-  },
   status: {
     paddingHorizontal: 8,
     paddingVertical: 5,

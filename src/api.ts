@@ -84,6 +84,8 @@ export const api = {
   },
   reprocess: (analysisID: string) =>
     request<Analysis>(`/analyses/${analysisID}/reprocess`, { method: "POST" }),
+  deleteAnalysis: (analysisID: string) =>
+    request<void>(`/analyses/${analysisID}`, { method: "DELETE" }),
   share: (analysisID: string, doctorID: string) =>
     request(`/analyses/${analysisID}/share`, {
       method: "POST",
