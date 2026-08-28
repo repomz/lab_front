@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lab",
     "slug": "lab-health",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
@@ -17,7 +17,7 @@
       "package": "ru.repomz.lab",
       "permissions": ["CAMERA"]
     },
-    "web": { "bundler": "metro", "name": "Lab — мои анализы", "shortName": "Lab", "themeColor": "#196B51", "backgroundColor": "#F7F8F5", "display": "standalone" },
+    "web": { "bundler": "metro", "name": "Lab — мои анализы", "shortName": "Lab", "themeColor": "#3867D6", "backgroundColor": "#F6F4FA", "display": "standalone" },
     "plugins": ["expo-document-picker", "expo-image-picker"]
   }
 }

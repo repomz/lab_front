@@ -21,12 +21,14 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as MailComposer from "expo-mail-composer";
 import * as Sharing from "expo-sharing";
+import { LinearGradient } from "expo-linear-gradient";
 import { api, API_URL, restoreToken, setToken } from "./src/api";
 import { Analysis, Consultation, Role, User } from "./src/types";
 import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "consultations" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.2.0";
 const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   home: "home-outline",
   analyses: "flask-outline",
@@ -128,7 +130,7 @@ export default function App() {
           <View style={[s.top, compact && s.topCompact]}>
             <View>
               <Text style={[s.eyebrow, compact && s.eyebrowCompact]}>
-                LAB HEALTH
+                LAB HEALTH · v{APP_VERSION}
               </Text>
               <Text style={[s.pageTitle, compact && s.pageTitleCompact]}>
                 {labels[tab]}
@@ -204,8 +206,16 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   return (
     <SafeAreaView style={[s.authPage, compact && s.authPageCompact]}>
       <StatusBar style={compact ? "light" : "dark"} />
-      <View style={[s.authAside, compact && s.authAsideCompact]}>
-        <View style={s.logo}>
+      <LinearGradient
+        colors={["#17214B", "#3D367A", "#146E78"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[s.authAside, compact && s.authAsideCompact]}
+      >
+        <View style={s.authOrbOne} />
+        <View style={s.authOrbTwo} />
+        <Text style={s.authVersion}>LAB HEALTH · v{APP_VERSION}</Text>
+        <View style={[s.logo, compact && { marginTop: 32 }]}>
           <Ionicons name="pulse" size={26} color={colors.white} />
         </View>
         <Text style={[s.authHero, compact && s.authHeroCompact]}>
@@ -225,7 +235,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
             </Text>
           </View>
         )}
-      </View>
+      </LinearGradient>
       <ScrollView
         style={compact && s.authScrollCompact}
         contentContainerStyle={[s.authForm, compact && s.authFormCompact]}
@@ -351,7 +361,13 @@ function Home({
   );
   return (
     <ScrollView contentContainerStyle={[s.scroll, compact && s.scrollCompact]}>
-      <View style={[s.welcome, compact && s.welcomeCompact]}>
+      <LinearGradient
+        colors={["#17214B", "#3C3A86", "#147D83"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[s.welcome, compact && s.welcomeCompact]}
+      >
+        <View style={s.welcomeOrb} />
         <View style={{ flex: 1 }}>
           <Text style={s.welcomeOver}>
             {user.role === "doctor"
@@ -380,7 +396,7 @@ function Home({
             <Ionicons name="pulse" size={50} color={colors.brand} />
           </View>
         )}
-      </View>
+      </LinearGradient>
       <View style={[s.metrics, compact && s.metricsCompact]}>
         <Metric
           compact={compact}
@@ -389,6 +405,7 @@ function Home({
           }
           value={`${analyses.length}`}
           icon="documents-outline"
+          tone="blue"
         />
         <Metric
           compact={compact}
@@ -402,6 +419,7 @@ function Home({
           label="Консультаций"
           value={`${consultations.length}`}
           icon="chatbubble-ellipses-outline"
+          tone="violet"
         />
       </View>
       <Section
@@ -495,11 +513,32 @@ function AnalysisCard({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Открыть результат: ${item.title}`}
-      style={({ pressed }) => [s.analysisCard, pressed && { opacity: 0.78 }]}
+      style={({ pressed }) => [
+        s.analysisCard,
+        !recognized
+          ? s.analysisCardReview
+          : out
+            ? s.analysisCardAlert
+            : s.analysisCardReady,
+        pressed && { opacity: 0.78 },
+      ]}
       onPress={onPress}
     >
-      <View style={s.analysisIcon}>
-        <Ionicons name="document-text-outline" size={25} color={colors.brand} />
+      <View
+        style={[
+          s.analysisIcon,
+          !recognized
+            ? { backgroundColor: colors.violetSoft }
+            : out
+              ? { backgroundColor: colors.coralSoft }
+              : { backgroundColor: colors.aquaSoft },
+        ]}
+      >
+        <Ionicons
+          name="document-text-outline"
+          size={25}
+          color={!recognized ? colors.violet : out ? colors.coral : colors.aqua}
+        />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={s.analysisTitle} numberOfLines={1}>
@@ -925,7 +964,9 @@ function Detail({
                 <Text style={s.analysisMeta}>
                   {active.status === "ready"
                     ? "Ниже можно посмотреть каждое найденное значение."
-                    : "Оригинал сохранён. Загрузите более чёткое фото или PDF."}
+                    : active.markers.length
+                      ? "Показатели доступны ниже. Строки с пометкой «проверить» нужно сверить с оригиналом."
+                      : "Оригинал сохранён. Загрузите более чёткое фото или PDF."}
                 </Text>
                 <Text style={s.providerText}>
                   Обработка: {active.ai_review.provider === "deepseek" ? "DeepSeek + локальный OCR" : "локальный OCR"}
@@ -1259,12 +1300,22 @@ function Metric({
           s.metricIcon,
           compact && s.metricIconCompact,
           tone === "warn" && { backgroundColor: colors.amberSoft },
+          tone === "blue" && { backgroundColor: colors.blueSoft },
+          tone === "violet" && { backgroundColor: colors.violetSoft },
         ]}
       >
         <Ionicons
           name={icon}
           size={23}
-          color={tone === "warn" ? colors.amber : colors.brand}
+          color={
+            tone === "warn"
+              ? colors.amber
+              : tone === "violet"
+                ? colors.violet
+                : tone === "blue"
+                  ? colors.blue
+                  : colors.aqua
+          }
         />
       </View>
       <View style={compact && s.metricCopyCompact}>
@@ -1369,7 +1420,7 @@ function Action({
   );
 }
 function Status({ value }: { value: string }) {
-  const bad = value === "low" || value === "high";
+  const bad = value === "low" || value === "high" || value === "unknown";
   return (
     <View style={[s.status, bad && s.statusBad]}>
       <Text style={[s.statusText, bad && { color: colors.amber }]}>
@@ -1379,7 +1430,7 @@ function Status({ value }: { value: string }) {
             ? "ниже"
             : value === "normal"
               ? "норма"
-              : "—"}
+              : "проверить"}
       </Text>
     </View>
   );
@@ -1542,7 +1593,6 @@ const s = StyleSheet.create({
   },
   scrollCompact: { padding: 16, paddingTop: 12, paddingBottom: 28, gap: 20 },
   welcome: {
-    backgroundColor: colors.brandDark,
     borderRadius: 28,
     padding: 30,
     flexDirection: "row",
@@ -1578,6 +1628,15 @@ const s = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#FFFFFF12",
     borderRadius: 65,
+  },
+  welcomeOrb: {
+    position: "absolute",
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    right: -70,
+    top: -105,
+    backgroundColor: "#A78BFA28",
   },
   metrics: { flexDirection: "row", gap: 16, flexWrap: "wrap" },
   metricsCompact: { gap: 10, flexWrap: "wrap" },
@@ -1640,6 +1699,21 @@ const s = StyleSheet.create({
     borderColor: colors.line,
     ...shadow,
   },
+  analysisCardReady: {
+    borderLeftWidth: 4,
+    borderLeftColor: colors.aqua,
+    backgroundColor: "#FCFEFE",
+  },
+  analysisCardReview: {
+    borderLeftWidth: 4,
+    borderLeftColor: colors.violet,
+    backgroundColor: "#FDFCFF",
+  },
+  analysisCardAlert: {
+    borderLeftWidth: 4,
+    borderLeftColor: colors.coral,
+    backgroundColor: "#FFFCFC",
+  },
   analysisIcon: {
     width: 48,
     height: 48,
@@ -1695,9 +1769,9 @@ const s = StyleSheet.create({
   },
   authAside: {
     flex: 1,
-    backgroundColor: colors.brandDark,
     padding: 52,
     justifyContent: "center",
+    overflow: "hidden",
   },
   authAsideCompact: {
     flex: 0,
@@ -1706,6 +1780,33 @@ const s = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 54,
     justifyContent: "flex-start",
+  },
+  authOrbOne: {
+    position: "absolute",
+    width: 330,
+    height: 330,
+    borderRadius: 165,
+    right: -125,
+    top: -115,
+    backgroundColor: "#8B5CF63A",
+  },
+  authOrbTwo: {
+    position: "absolute",
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    left: -100,
+    bottom: -90,
+    backgroundColor: "#20C4B52C",
+  },
+  authVersion: {
+    position: "absolute",
+    top: 22,
+    left: 24,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    color: "#A9D9C7",
   },
   authHero: {
     fontSize: 42,
