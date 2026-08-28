@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as MailComposer from "expo-mail-composer";
+import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { LinearGradient } from "expo-linear-gradient";
 import { api, API_URL, restoreToken, setToken } from "./src/api";
@@ -28,7 +29,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "consultations" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.2.2";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.2.3";
 const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   home: "home-outline",
   analyses: "flask-outline",
@@ -724,14 +725,29 @@ function UploadModal({
   const [asset, setAsset] = useState<Asset | null>(null);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   useEffect(() => {
     if (visible) {
       setAsset(seed?.uri ? seed : null);
       setTitle("");
       setError("");
+      setProgress(0);
     }
   }, [visible, seed]);
+  useEffect(() => {
+    if (!busy) return;
+    setProgress(0.08);
+    const timer = setInterval(() => {
+      setProgress((current) => {
+        if (current < 0.28) return Math.min(0.28, current + 0.045);
+        if (current < 0.62) return Math.min(0.62, current + 0.024);
+        if (current < 0.86) return Math.min(0.86, current + 0.012);
+        return Math.min(0.94, current + 0.003);
+      });
+    }, 700);
+    return () => clearInterval(timer);
+  }, [busy]);
   async function camera() {
     const p = await ImagePicker.requestCameraPermissionsAsync();
     if (!p.granted) {
@@ -807,6 +823,8 @@ function UploadModal({
         asset,
         title || asset.name.replace(/\.[^.]+$/, ""),
       );
+      setProgress(1);
+      await new Promise((resolve) => setTimeout(resolve, 300));
       onDone(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
@@ -873,6 +891,34 @@ function UploadModal({
             onChangeText={setTitle}
           />
           {error ? <Text style={s.error}>{error}</Text> : null}
+          {busy && (
+            <View style={s.progressPanel} accessibilityRole="progressbar">
+              <View style={s.progressHead}>
+                <View style={s.progressLabelRow}>
+                  <ActivityIndicator size="small" color={colors.brand} />
+                  <Text style={s.progressLabel}>
+                    {progress < 0.3
+                      ? "Загружаем документ"
+                      : progress < 0.7
+                        ? "Распознаём показатели"
+                        : progress < 1
+                          ? "Проверяем результат"
+                          : "Готово"}
+                  </Text>
+                </View>
+                <Text style={s.progressPercent}>{Math.round(progress * 100)}%</Text>
+              </View>
+              <View style={s.progressTrack}>
+                <LinearGradient
+                  colors={[colors.brand, colors.aqua, colors.violet]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[s.progressFill, { width: `${Math.round(progress * 100)}%` }]}
+                />
+              </View>
+              <Text style={s.progressHint}>Процент приблизительный и зависит от качества снимка.</Text>
+            </View>
+          )}
           <Button
             label={busy ? "Распознаём…" : "Загрузить и распознать"}
             disabled={busy}
@@ -883,6 +929,68 @@ function UploadModal({
     </Modal>
   );
 }
+
+function escapeHTML(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function analysisReportHTML(analysis: Analysis) {
+  const rows = analysis.markers.length
+    ? analysis.markers
+        .map((marker) => {
+          const reference =
+            marker.reference_text ||
+            [marker.reference_min, marker.reference_max]
+              .filter((value) => value !== undefined)
+              .join(" — ") ||
+            "Не указан";
+          const result = `${marker.value ?? marker.text_value ?? "—"}${marker.unit ? ` ${marker.unit}` : ""}`;
+          return `<tr><td>${escapeHTML(marker.name)}</td><td class="value">${escapeHTML(result)}</td><td>${escapeHTML(reference)}</td><td><span class="status ${marker.status}">${escapeHTML(markerStatusText(marker.status))}</span></td></tr>`;
+        })
+        .join("")
+    : '<tr><td colspan="4" class="empty">Показатели не распознаны</td></tr>';
+  return `<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><style>
+  @page { margin: 18mm 14mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #1c2330; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; font-size: 12px; }
+  .header { margin: -18mm -14mm 20px; padding: 22px 14mm 18px; color: white; background: linear-gradient(120deg, #1e315d, #395aa6, #187b83); }
+  .brand { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: .85; }
+  h1 { margin: 7px 0 3px; font-size: 22px; }
+  .meta { color: #657086; margin: 4px 0 18px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { padding: 10px 9px; color: #263553; background: #eaf0f8; border: 1px solid #d5deeb; text-align: left; font-size: 11px; }
+  td { padding: 10px 9px; border: 1px solid #dbe2ec; vertical-align: middle; }
+  tr { break-inside: avoid; }
+  .value { font-weight: 700; white-space: nowrap; }
+  .status { display: inline-block; padding: 4px 7px; border-radius: 8px; color: #176452; background: #e4f5ef; font-size: 10px; font-weight: 700; white-space: nowrap; }
+  .status.high, .status.low, .status.unknown { color: #9a5b12; background: #fff1da; }
+  .empty { padding: 24px; color: #657086; text-align: center; }
+  .note { margin-top: 20px; color: #657086; font-size: 10px; line-height: 1.5; }
+</style></head><body>
+  <div class="header"><div class="brand">Lab · медицинские документы</div><h1>Результаты лабораторного анализа</h1></div>
+  <h2>${escapeHTML(analysis.title)}</h2>
+  <div class="meta">Дата загрузки: ${escapeHTML(date(analysis.created_at))}</div>
+  <table><thead><tr><th>Показатель</th><th>Результат</th><th>Референс</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table>
+  <div class="note">Документ содержит автоматически распознанные данные. Сверяйте значения с оригинальным бланком и обсуждайте медицинские решения с врачом.</div>
+</body></html>`;
+}
+
+function markerStatusText(value: string) {
+  return value === "high"
+    ? "Выше нормы"
+    : value === "low"
+      ? "Ниже нормы"
+      : value === "normal"
+        ? "Норма"
+        : "Проверить";
+}
+
 function Detail({
   item,
   user,
@@ -903,7 +1011,7 @@ function Detail({
   const [question, setQuestion] = useState(
     "Пожалуйста, прокомментируйте результаты анализа.",
   );
-  const [reprocessing, setReprocessing] = useState(false);
+  const [exporting, setExporting] = useState<"email" | "share" | "print" | null>(null);
   useEffect(() => {
     if (item && user.role === "patient")
       api
@@ -925,40 +1033,78 @@ function Detail({
       onError(e instanceof Error ? e.message : "Не удалось открыть доступ");
     }
   }
-  async function reprocess() {
-    setReprocessing(true);
-    try {
-      await api.reprocess(active.id);
-      onChanged();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : "Не удалось повторить распознавание");
-    } finally {
-      setReprocessing(false);
-    }
+  async function nativeReport() {
+    const result = await Print.printToFileAsync({
+      html: analysisReportHTML(active),
+      margins: { top: 28, right: 28, bottom: 28, left: 28 },
+    });
+    return result.uri;
   }
-  async function shareFile() {
-    const url = api.fileURL(active.id);
-    if (Platform.OS === "web") {
-      await Linking.openURL(url);
+  async function shareWebReport() {
+    const response = await fetch(api.reportURL(active.id));
+    if (!response.ok) throw new Error("Не удалось сформировать PDF");
+    const blob = await response.blob();
+    const file = new File([blob], `analysis-${active.id}.pdf`, {
+      type: "application/pdf",
+    });
+    const webNavigator = navigator as Navigator & {
+      canShare?: (data: ShareData) => boolean;
+      share?: (data: ShareData) => Promise<void>;
+    };
+    if (
+      webNavigator.share &&
+      (!webNavigator.canShare || webNavigator.canShare({ files: [file] }))
+    ) {
+      await webNavigator.share({
+        title: active.title,
+        text: "Результаты лабораторного анализа в PDF",
+        files: [file],
+      });
       return;
     }
-    if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(url);
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = file.name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(href), 1000);
   }
-  async function email() {
-    const body = `Результат: ${active.title}\n\nОткрыть файл: ${api.fileURL(active.id)}`;
-    if (await MailComposer.isAvailableAsync())
-      await MailComposer.composeAsync({
-        subject: `Результаты анализов: ${active.title}`,
-        body,
-      });
-    else
-      await Linking.openURL(
-        `mailto:?subject=${encodeURIComponent("Результаты анализов")}&body=${encodeURIComponent(body)}`,
-      );
-  }
-  function print() {
-    if (Platform.OS === "web") window.print();
-    else shareFile();
+  async function performReportAction(kind: "email" | "share" | "print") {
+    if (exporting) return;
+    setExporting(kind);
+    try {
+      if (Platform.OS === "web") {
+        if (kind === "print") {
+          await Linking.openURL(api.reportURL(active.id));
+        } else {
+          await shareWebReport();
+        }
+        return;
+      }
+      const uri = await nativeReport();
+      if (kind === "email" && (await MailComposer.isAvailableAsync())) {
+        await MailComposer.composeAsync({
+          subject: `Результаты анализов: ${active.title}`,
+          body: "Во вложении итоговый PDF с распознанными показателями.",
+          attachments: [uri],
+        });
+      } else if (kind === "print") {
+        await Print.printAsync({ uri });
+      } else if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          dialogTitle: `Передать ${active.title}`,
+          mimeType: "application/pdf",
+          UTI: "com.adobe.pdf",
+        });
+      } else {
+        throw new Error("Передача файлов недоступна на этом устройстве");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось подготовить PDF";
+      if (!/cancel|abort/i.test(message)) onError(message);
+    } finally {
+      setExporting(null);
+    }
   }
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -980,6 +1126,7 @@ function Detail({
             </Pressable>
           </View>
           <ScrollView
+            style={s.detailScroll}
             contentContainerStyle={[
               s.detailBody,
               compact && s.detailBodyCompact,
@@ -1027,27 +1174,6 @@ function Detail({
                 text="Проверьте качество снимка или добавьте более чёткий файл."
               />
             )}
-            <Text style={s.detailSection}>Действия</Text>
-            {user.role === "patient" && (
-              <Button
-                label={reprocessing ? "Распознаём заново…" : "Распознать оригинал заново"}
-                icon="scan-outline"
-                kind="ghost"
-                disabled={reprocessing}
-                onPress={reprocess}
-              />
-            )}
-            <View style={[s.actionRow, compact && s.actionRowCompact]}>
-              <Action icon="mail-outline" label="По почте" onPress={email} />
-              <Action
-                icon="share-outline"
-                label="Поделиться"
-                onPress={shareFile}
-              />
-              {Platform.OS === "web" && (
-                <Action icon="print-outline" label="Печать" onPress={print} />
-              )}
-            </View>
             {user.role === "patient" && (
               <>
                 <Text style={s.detailSection}>Консультация врача</Text>
@@ -1106,6 +1232,31 @@ function Detail({
               </>
             )}
           </ScrollView>
+          <View style={s.detailFooter}>
+            <View style={s.actionRow}>
+              <Action
+                icon="mail-outline"
+                label="По почте"
+                busy={exporting === "email"}
+                disabled={!!exporting}
+                onPress={() => void performReportAction("email")}
+              />
+              <Action
+                icon="share-outline"
+                label="Передать"
+                busy={exporting === "share"}
+                disabled={!!exporting}
+                onPress={() => void performReportAction("share")}
+              />
+              <Action
+                icon="print-outline"
+                label="Печать"
+                busy={exporting === "print"}
+                disabled={!!exporting}
+                onPress={() => void performReportAction("print")}
+              />
+            </View>
+          </View>
         </View>
       </View>
     </Modal>
@@ -1342,18 +1493,32 @@ function Action({
   icon,
   label,
   onPress,
+  busy = false,
+  disabled = false,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
+  busy?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled, busy }}
+      disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [s.action, pressed && s.pressablePressed]}
+      style={({ pressed }) => [
+        s.action,
+        pressed && s.pressablePressed,
+        disabled && s.actionDisabled,
+      ]}
     >
-      <Ionicons name={icon} size={23} color={colors.brand} />
+      {busy ? (
+        <ActivityIndicator size="small" color={colors.brand} />
+      ) : (
+        <Ionicons name={icon} size={23} color={colors.brand} />
+      )}
       <Text style={s.sourceText}>{label}</Text>
     </Pressable>
   );
@@ -1910,6 +2075,29 @@ const s = StyleSheet.create({
     borderRadius: 14,
     marginBottom: 14,
   },
+  progressPanel: {
+    padding: 14,
+    marginBottom: 14,
+    borderRadius: 16,
+    backgroundColor: colors.blueSoft,
+  },
+  progressHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  progressLabelRow: { flexDirection: "row", alignItems: "center", gap: 9 },
+  progressLabel: { fontSize: 13, fontWeight: "800", color: colors.ink },
+  progressPercent: { fontSize: 13, fontWeight: "800", color: colors.brand },
+  progressTrack: {
+    height: 9,
+    overflow: "hidden",
+    borderRadius: 5,
+    backgroundColor: colors.white,
+  },
+  progressFill: { height: "100%", borderRadius: 5 },
+  progressHint: { marginTop: 8, fontSize: 11, color: colors.muted },
   detailSheet: {
     backgroundColor: colors.white,
     maxWidth: 850,
@@ -1929,8 +2117,18 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  detailBody: { padding: 24, paddingBottom: 60 },
-  detailBodyCompact: { padding: 16, paddingBottom: 44 },
+  detailScroll: { flex: 1 },
+  detailBody: { padding: 24, paddingBottom: 32 },
+  detailBodyCompact: { padding: 16, paddingBottom: 24 },
+  detailFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 11,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    backgroundColor: colors.white,
+    ...shadow,
+  },
   iconButton: {
     width: 44,
     height: 44,
@@ -1986,11 +2184,10 @@ const s = StyleSheet.create({
   statusBad: { backgroundColor: colors.amberSoft },
   statusText: { fontSize: 10, fontWeight: "800", color: colors.brand },
   actionRow: { flexDirection: "row", gap: 10 },
-  actionRowCompact: { flexWrap: "wrap" },
   action: {
-    minWidth: 105,
-    flexGrow: 1,
-    minHeight: 76,
+    flex: 1,
+    minWidth: 0,
+    minHeight: 62,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 15,
@@ -1998,6 +2195,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
     gap: 5,
   },
+  actionDisabled: { opacity: 0.58 },
   doctorChip: {
     minWidth: 220,
     marginRight: 10,

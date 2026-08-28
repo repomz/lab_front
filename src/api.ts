@@ -82,8 +82,6 @@ export const api = {
     }
     return request<Analysis>("/analyses", { method: "POST", body: form });
   },
-  reprocess: (analysisID: string) =>
-    request<Analysis>(`/analyses/${analysisID}/reprocess`, { method: "POST" }),
   deleteAnalysis: (analysisID: string) =>
     request<void>(`/analyses/${analysisID}`, { method: "DELETE" }),
   share: (analysisID: string, doctorID: string) =>
@@ -103,5 +101,7 @@ export const api = {
     }),
   fileURL: (id: string) =>
     `${API_URL}/analyses/${id}/file?access_token=${encodeURIComponent(token)}`,
+  reportURL: (id: string) =>
+    `${API_URL}/analyses/${id}/report.pdf?access_token=${encodeURIComponent(token)}`,
   token: () => token,
 };
