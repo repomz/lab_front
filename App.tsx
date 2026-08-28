@@ -28,7 +28,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "consultations" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.2.0";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.2.1";
 const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   home: "home-outline",
   analyses: "flask-outline",
@@ -867,6 +867,7 @@ function Detail({
   const [question, setQuestion] = useState(
     "Пожалуйста, прокомментируйте результаты анализа.",
   );
+  const [reprocessing, setReprocessing] = useState(false);
   useEffect(() => {
     if (item && user.role === "patient")
       api
@@ -889,6 +890,17 @@ function Detail({
       onChanged();
     } catch (e) {
       onError(e instanceof Error ? e.message : "Не удалось открыть доступ");
+    }
+  }
+  async function reprocess() {
+    setReprocessing(true);
+    try {
+      await api.reprocess(active.id);
+      onChanged();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Не удалось повторить распознавание");
+    } finally {
+      setReprocessing(false);
     }
   }
   async function shareFile() {
@@ -969,7 +981,7 @@ function Detail({
                       : "Оригинал сохранён. Загрузите более чёткое фото или PDF."}
                 </Text>
                 <Text style={s.providerText}>
-                  Обработка: {active.ai_review.provider === "deepseek" ? "DeepSeek + локальный OCR" : "локальный OCR"}
+                  Обработка: {active.ai_review.provider === "deepseek" ? "DeepSeek + два прохода локального OCR" : "два прохода локального OCR"}
                 </Text>
               </View>
             </View>
@@ -997,7 +1009,11 @@ function Detail({
               active.markers.map((m, i) => (
                 <View
                   key={`${m.name}-${i}`}
-                  style={[s.marker, compact && s.markerCompact]}
+                  style={[
+                    s.marker,
+                    (m.confidence ?? 1) < 0.7 && s.markerUncertain,
+                    compact && s.markerCompact,
+                  ]}
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={s.markerName}>{m.name}</Text>
@@ -1008,6 +1024,21 @@ function Detail({
                           .join(" — ") ||
                         "Референс не указан"}
                     </Text>
+                    {m.confidence !== undefined && (
+                      <Text
+                        style={[
+                          s.confidenceText,
+                          m.confidence < 0.7 && s.confidenceTextWarn,
+                        ]}
+                      >
+                        {m.confidence >= 0.9 ? "Высокая" : m.confidence >= 0.7 ? "Средняя" : "Низкая"} уверенность · {Math.round(m.confidence * 100)}%
+                      </Text>
+                    )}
+                    {m.warnings?.map((warning, warningIndex) => (
+                      <Text key={`${warning}-${warningIndex}`} style={s.markerWarning}>
+                        {warning}
+                      </Text>
+                    ))}
                   </View>
                   <View
                     style={[
@@ -1046,6 +1077,15 @@ function Detail({
               )}
             </View>
             <Text style={s.detailSection}>Действия</Text>
+            {user.role === "patient" && (
+              <Button
+                label={reprocessing ? "Распознаём заново…" : "Распознать оригинал заново"}
+                icon="scan-outline"
+                kind="ghost"
+                disabled={reprocessing}
+                onPress={reprocess}
+              />
+            )}
             <View style={[s.actionRow, compact && s.actionRowCompact]}>
               <Action icon="mail-outline" label="По почте" onPress={email} />
               <Action
@@ -2075,6 +2115,12 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  markerUncertain: {
+    marginHorizontal: -10,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: colors.amberSoft,
+  },
   markerCompact: {
     alignItems: "flex-start",
     paddingVertical: 12,
@@ -2093,6 +2139,9 @@ const s = StyleSheet.create({
   },
   markerName: { fontSize: 14, fontWeight: "600", color: colors.ink },
   markerValue: { fontSize: 15, fontWeight: "800", color: colors.ink },
+  confidenceText: { marginTop: 4, fontSize: 11, fontWeight: "700", color: colors.aqua },
+  confidenceTextWarn: { color: colors.amber },
+  markerWarning: { marginTop: 3, fontSize: 11, lineHeight: 15, color: colors.amber },
   ocrBox: {
     padding: 15,
     borderRadius: 15,

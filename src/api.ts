@@ -82,6 +82,8 @@ export const api = {
     }
     return request<Analysis>("/analyses", { method: "POST", body: form });
   },
+  reprocess: (analysisID: string) =>
+    request<Analysis>(`/analyses/${analysisID}/reprocess`, { method: "POST" }),
   share: (analysisID: string, doctorID: string) =>
     request(`/analyses/${analysisID}/share`, {
       method: "POST",
