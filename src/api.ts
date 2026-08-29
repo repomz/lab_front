@@ -61,6 +61,10 @@ export const api = {
   me: () => request<User>("/me"),
   updatePatientProfile: (value: { age: number; heightCM: number; weightKG: number; activity: ActivitySurvey; nutrition: NutritionSurvey }) =>
     request<User>("/me/patient-profile", { method: "PATCH", body: JSON.stringify(value) }),
+  uploadAvatar: async (asset: { uri: string; name: string; mimeType?: string; file?: Blob }) => {
+    const form=new FormData(); if(Platform.OS==="web"){let file=asset.file;if(!file){file=await (await fetch(asset.uri)).blob()}form.append("file",file,asset.name)}else{form.append("file",{uri:asset.uri,name:asset.name,type:asset.mimeType||"image/jpeg"} as unknown as Blob)};return request<User>("/me/avatar",{method:"POST",body:form});
+  },
+  avatarPreset: (preset: string) => request<User>("/me/avatar-preset",{method:"PATCH",body:JSON.stringify({preset})}),
   doctors: (specialty = "") => request<User[]>(`/doctors${specialty ? `?specialty=${encodeURIComponent(specialty)}` : ""}`),
   patients: () => request<User[]>("/patients"),
   analyses: () => request<Analysis[]>("/analyses"),
@@ -132,4 +136,5 @@ export const api = {
   reportURL: (id: string) =>
     `${API_URL}/analyses/${id}/report.pdf?access_token=${encodeURIComponent(token)}`,
   token: () => token,
+  avatarURL: (user: User) => user.avatar_updated_at && !user.avatar_preset ? `${API_URL}/users/${user.id}/avatar?access_token=${encodeURIComponent(token)}&v=${encodeURIComponent(user.avatar_updated_at)}` : "",
 };
