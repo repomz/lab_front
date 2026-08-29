@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lab",
     "slug": "lab-health",
-    "version": "0.2.3",
+    "version": "0.3.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
@@ -15,9 +15,18 @@
     },
     "android": {
       "package": "ru.repomz.lab",
-      "permissions": ["CAMERA"]
+      "permissions": [
+        "CAMERA"
+      ]
     },
-    "web": { "bundler": "metro", "name": "Lab — мои анализы", "shortName": "Lab", "themeColor": "#3867D6", "backgroundColor": "#F6F4FA", "display": "standalone" },
+    "web": {
+      "bundler": "metro",
+      "name": "Lab — мои анализы",
+      "shortName": "Lab",
+      "themeColor": "#3867D6",
+      "backgroundColor": "#F6F4FA",
+      "display": "standalone"
+    },
     "plugins": [
       "expo-document-picker",
       [
@@ -27,7 +36,8 @@
           "cameraPermission": "Камера нужна, чтобы сфотографировать бланк анализа.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-video"
     ]
   }
 }

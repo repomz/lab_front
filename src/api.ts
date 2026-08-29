@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import { Analysis, Consultation, Role, User } from "./types";
+import { ActivitySurvey, Analysis, ClinicalAssistResult, Consultation, NutritionSurvey, Role, User } from "./types";
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080/api/v1";
@@ -35,6 +35,9 @@ export const api = {
     fullName: string;
     specialization?: string;
     licenseNumber?: string;
+    age?: number;
+    heightCM?: number;
+    weightKG?: number;
   }) =>
     request<{ token: string; user: User }>("/auth/register", {
       method: "POST",
@@ -45,6 +48,9 @@ export const api = {
         fullName: v.fullName,
         specialization: v.specialization,
         licenseNumber: v.licenseNumber,
+        age: v.age,
+        heightCM: v.heightCM,
+        weightKG: v.weightKG,
       }),
     }),
   login: (email: string, password: string) =>
@@ -53,15 +59,16 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => request<User>("/me"),
-  doctors: () => request<User[]>("/doctors"),
+  updatePatientProfile: (value: { age: number; heightCM: number; weightKG: number; activity: ActivitySurvey; nutrition: NutritionSurvey }) =>
+    request<User>("/me/patient-profile", { method: "PATCH", body: JSON.stringify(value) }),
+  doctors: (specialty = "") => request<User[]>(`/doctors${specialty ? `?specialty=${encodeURIComponent(specialty)}` : ""}`),
+  patients: () => request<User[]>("/patients"),
   analyses: () => request<Analysis[]>("/analyses"),
   consultations: () => request<Consultation[]>("/consultations"),
   upload: async (
     asset: { uri: string; name: string; mimeType?: string; file?: Blob },
-    title: string,
   ) => {
     const form = new FormData();
-    form.append("title", title);
     if (Platform.OS === "web") {
       let file = asset.file;
       if (!file) {
@@ -94,6 +101,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ analysisID, doctorID, question }),
     }),
+  requestDoctor: (value: { analysisID: string; doctorID: string; question: string; serviceType: "consultation" | "appointment" | "home_visit"; appointmentAt?: string }) =>
+    request<Consultation>("/consultations", { method: "POST", body: JSON.stringify(value) }),
+  aiConsult: (question: string) =>
+    request<Consultation>("/consultations/ai", { method: "POST", body: JSON.stringify({ question }) }),
+  recommendation: (kind: "activity" | "nutrition", value: { activity?: ActivitySurvey; nutrition?: NutritionSurvey }) =>
+    request<{ recommendation: string; user: User }>(`/recommendations/${kind}`, { method: "POST", body: JSON.stringify(value) }),
+  clinicalAssist: (value: { patientID: string; objective: string; clinical: string }) =>
+    request<ClinicalAssistResult>("/clinical-assist", { method: "POST", body: JSON.stringify({ patient_id: value.patientID, objective: value.objective, clinical: value.clinical }) }),
   reply: (id: string, reply: string) =>
     request(`/consultations/${id}`, {
       method: "PATCH",

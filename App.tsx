@@ -22,26 +22,38 @@ import * as ImagePicker from "expo-image-picker";
 import * as MailComposer from "expo-mail-composer";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { LinearGradient } from "expo-linear-gradient";
 import { api, API_URL, restoreToken, setToken } from "./src/api";
-import { Analysis, Consultation, Role, User } from "./src/types";
+import { ActivitySurvey, Analysis, ClinicalAssistResult, Consultation, NutritionSurvey, Role, User } from "./src/types";
 import { colors, shadow } from "./src/theme";
 
-type Tab = "home" | "analyses" | "consultations" | "profile";
+type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "consilium" | "guidelines" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.2.3";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.3.0";
 const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   home: "home-outline",
   analyses: "flask-outline",
+  patients: "people-outline",
   consultations: "chatbubbles-outline",
+  doctors: "medkit-outline",
+  consilium: "git-network-outline",
+  guidelines: "library-outline",
   profile: "person-outline",
 };
 const labels: Record<Tab, string> = {
   home: "Главная",
   analyses: "Анализы",
+  patients: "Пациенты",
   consultations: "Консультации",
+  doctors: "Врачи",
+  consilium: "Консилиум",
+  guidelines: "Клин. рекомендации",
   profile: "Профиль",
 };
+const tabsFor = (role: Role): Tab[] => role === "doctor"
+  ? ["home", "patients", "consultations", "consilium", "guidelines", "profile"]
+  : ["home", "analyses", "consultations", "doctors", "profile"];
 
 export default function App() {
   const [boot, setBoot] = useState(true);
@@ -116,10 +128,9 @@ export default function App() {
         compact={compact}
         user={user}
         analyses={analyses}
-        onUpload={() => setUpload({ uri: "", name: "" })}
         onOpen={setSelected}
-        onDelete={user.role === "patient" ? requestDelete : undefined}
         onTab={setTab}
+        onUser={setUser}
       />
     ) : tab === "analyses" ? (
       <Analyses
@@ -130,15 +141,28 @@ export default function App() {
         onDelete={user.role === "patient" ? requestDelete : undefined}
         onUpload={() => setUpload({ uri: "", name: "" })}
       />
+    ) : tab === "patients" ? (
+      <DoctorPatients patientsAnalyses={analyses} onOpen={setSelected} />
     ) : tab === "consultations" ? (
       <Consultations
         data={consultations}
         user={user}
         onRefresh={() => refresh()}
       />
+    ) : tab === "doctors" ? (
+      <DoctorsScreen
+        user={user}
+        analyses={analyses}
+        onRefresh={() => refresh()}
+      />
+    ) : tab === "consilium" ? (
+      <Consilium />
+    ) : tab === "guidelines" ? (
+      <Guidelines />
     ) : (
       <Profile
         user={user}
+        onUpdated={setUser}
         onLogout={async () => {
           await setToken("");
           setUser(null);
@@ -167,7 +191,7 @@ export default function App() {
           </View>
           {error ? <Banner text={error} onClose={() => setError("")} /> : null}
           <View style={s.content}>{content}</View>
-          {!desktop && <Bottom tab={tab} onTab={setTab} />}
+          {!desktop && <Bottom role={user.role} tab={tab} onTab={setTab} />}
         </View>
       </View>
       <UploadModal
@@ -210,6 +234,9 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
     fullName: "",
     specialization: "",
     licenseNumber: "",
+    age: "",
+    heightCM: "",
+    weightKG: "",
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -220,7 +247,13 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
       const r =
         mode === "login"
           ? await api.login(form.email, form.password)
-          : await api.register({ ...form, role });
+          : await api.register({
+              ...form,
+              role,
+              age: role === "patient" ? Number(form.age) : undefined,
+              heightCM: role === "patient" ? Number(form.heightCM) : undefined,
+              weightKG: role === "patient" ? Number(form.weightKG) : undefined,
+            });
       onDone(r.user, r.token);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
@@ -315,6 +348,31 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
                   />
                 </>
               )}
+              {role === "patient" && (
+                <View style={s.registrationVitals}>
+                  <Field
+                    label="Возраст"
+                    keyboardType="number-pad"
+                    placeholder="35"
+                    value={form.age}
+                    onChangeText={(v: string) => setForm({ ...form, age: v })}
+                  />
+                  <Field
+                    label="Рост, см"
+                    keyboardType="decimal-pad"
+                    placeholder="175"
+                    value={form.heightCM}
+                    onChangeText={(v: string) => setForm({ ...form, heightCM: v })}
+                  />
+                  <Field
+                    label="Вес, кг"
+                    keyboardType="decimal-pad"
+                    placeholder="70"
+                    value={form.weightKG}
+                    onChangeText={(v: string) => setForm({ ...form, weightKG: v })}
+                  />
+                </View>
+              )}
             </>
           )}
           <Field
@@ -365,91 +423,143 @@ function Home({
   compact,
   user,
   analyses,
-  onUpload,
   onOpen,
-  onDelete,
   onTab,
+  onUser,
 }: {
   compact: boolean;
   user: User;
   analyses: Analysis[];
-  onUpload: () => void;
   onOpen: (a: Analysis) => void;
-  onDelete?: (a: Analysis) => void;
   onTab: (t: Tab) => void;
+  onUser: (u: User) => void;
 }) {
+  const [wellness, setWellness] = useState<"activity" | "nutrition" | null>(null);
+  const age = user.patient_profile?.age || 35;
+  const ageTone = age < 40 ? "young" : age < 65 ? "middle" : "senior";
+  if (user.role === "doctor") {
+    return (
+      <ScrollView contentContainerStyle={[s.scroll, compact && s.scrollCompact]}>
+        <LinearGradient colors={["#17214B", "#3C3A86", "#147D83"]} style={[s.welcome, compact && s.welcomeCompact]}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.welcomeOver}>РАБОЧЕЕ ПРОСТРАНСТВО ВРАЧА</Text>
+            <Text style={[s.welcomeTitle, compact && s.welcomeTitleCompact]}>Здравствуйте, {firstName(user.full_name)}</Text>
+            <Text style={[s.welcomeText, compact && s.welcomeTextCompact]}>Пациенты, запросы и открытые исследования собраны в одном пространстве.</Text>
+          </View>
+        </LinearGradient>
+        <Section title="Последние исследования" action="Все анализы" onAction={() => onTab("analyses")}>
+          {analyses.length ? analyses.slice(0, 3).map((analysis) => <AnalysisCard key={analysis.id} item={analysis} onPress={() => onOpen(analysis)} />) : <Empty icon="people-outline" title="Нет открытых исследований" text="Они появятся после запроса пациента." />}
+        </Section>
+      </ScrollView>
+    );
+  }
   return (
-    <ScrollView contentContainerStyle={[s.scroll, compact && s.scrollCompact]}>
+    <ScrollView contentContainerStyle={[s.patientHome, compact && s.patientHomeCompact]}>
       <LinearGradient
         colors={["#17214B", "#3C3A86", "#147D83"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={[s.welcome, compact && s.welcomeCompact]}
+        style={[s.welcome, s.patientWelcome, compact && s.patientWelcomeCompact]}
       >
-        <View style={s.welcomeOrb} />
         <View style={{ flex: 1 }}>
-          <Text style={s.welcomeOver}>
-            {user.role === "doctor"
-              ? "РАБОЧЕЕ ПРОСТРАНСТВО ВРАЧА"
-              : "ВАША ИСТОРИЯ ЗДОРОВЬЯ"}
-          </Text>
+          <Text style={s.welcomeOver}>ВАШ ПЕРСОНАЛЬНЫЙ ПЛАН</Text>
           <Text style={[s.welcomeTitle, compact && s.welcomeTitleCompact]}>
             Здравствуйте, {firstName(user.full_name)}
           </Text>
-          <Text style={[s.welcomeText, compact && s.welcomeTextCompact]}>
-            {user.role === "doctor"
-              ? "Здесь собраны пациенты, которые открыли вам доступ, и новые запросы на консультацию."
-              : "Добавляйте лабораторные результаты — сервис распознает показатели и соберёт их в понятном виде."}
-          </Text>
-          {user.role === "patient" && (
-            <Button
-              label="Добавить анализ"
-              icon="add"
-              onPress={onUpload}
-              compact
-            />
-          )}
+          <Text style={[s.welcomeText, compact && s.welcomeTextCompact]}>{user.patient_profile ? `${age} лет · ИМТ ${user.patient_profile.bmi}` : "Заполните возраст, рост и вес в профиле"}</Text>
         </View>
-        {!compact && (
-          <View style={s.welcomeMark}>
-            <Ionicons name="pulse" size={50} color={colors.brand} />
-          </View>
-        )}
       </LinearGradient>
-      <Section
-        title={
-          user.role === "doctor"
-            ? "Недавно открытые пациентами"
-            : "Последние результаты"
-        }
-        action="Все анализы"
-        onAction={() => onTab("analyses")}
-      >
-        {analyses.length ? (
-          <View style={s.cardGrid}>
-            {analyses.slice(0, 3).map((a) => (
-              <AnalysisCard
-                key={a.id}
-                item={a}
-                onPress={() => onOpen(a)}
-                onDelete={onDelete ? () => onDelete(a) : undefined}
-              />
-            ))}
-          </View>
-        ) : (
-          <Empty
-            icon="flask-outline"
-            title="Пока нет результатов"
-            text={
-              user.role === "patient"
-                ? "Сфотографируйте бланк или выберите PDF из файлов."
-                : "Когда пациент откроет вам доступ, анализ появится здесь."
-            }
-          />
-        )}
-      </Section>
+      <WellnessVideoCard ageTone={ageTone} onPress={() => setWellness("activity")} />
+      <Pressable onPress={() => setWellness("nutrition")} style={({ pressed }) => [s.nutritionHomeCard, pressed && { opacity: 0.82 }]}>
+        <View style={s.wellnessCardHead}>
+          <View style={s.wellnessIcon}><Ionicons name="nutrition-outline" size={22} color={colors.violet} /></View>
+          <View style={{ flex: 1 }}><Text style={s.wellnessTitle}>Правильное питание</Text><Text style={s.wellnessSubtitle}>{ageTone === "young" ? "Энергия, белок и регулярный режим" : ageTone === "middle" ? "Баланс, клетчатка и контроль порций" : "Достаточный белок, вода и простая еда"}</Text></View>
+          <Ionicons name="arrow-forward-circle" size={31} color={colors.violet} />
+        </View>
+        <View style={s.foodInfographic}>
+          <FoodPart icon="leaf-outline" value="½" label="овощи" color={colors.aqua} />
+          <FoodPart icon="fish-outline" value="¼" label="белок" color={colors.blue} />
+          <FoodPart icon="ellipse-outline" value="¼" label="крупы" color={colors.violet} />
+        </View>
+      </Pressable>
+      <WellnessModal kind={wellness} user={user} analyses={analyses} onClose={() => setWellness(null)} onUser={onUser} />
     </ScrollView>
   );
+}
+
+function WellnessVideoCard({ ageTone, onPress }: { ageTone: "young" | "middle" | "senior"; onPress: () => void }) {
+  const source = ageTone === "young" ? "https://videos.pexels.com/video-files/30694240/13134519_640_360_30fps.mp4" : ageTone === "middle" ? "https://videos.pexels.com/video-files/8795486/8795486-sd_960_506_24fps.mp4" : "https://videos.pexels.com/video-files/8173053/8173053-sd_640_360_30fps.mp4";
+  const player = useVideoPlayer(source, (instance) => { instance.loop = true; instance.muted = true; instance.play(); });
+  const copy = ageTone === "young" ? ["Активная жизнь", "Бег, игры и тренировки"] : ageTone === "middle" ? ["Движение каждый день", "Ходьба, походы и гимнастика"] : ["Мягкая активность", "Прогулки, баланс и лёгкие движения"];
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [s.videoHomeCard, pressed && { opacity: 0.88 }]}>
+      <VideoView player={player} style={s.homeVideo} nativeControls={false} contentFit="cover" />
+      <LinearGradient colors={["#10182ACC", "#10182A1A"]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={s.videoOverlay}>
+        <View style={{ flex: 1 }}><Text style={s.videoEyebrow}>АКТИВНЫЙ ОБРАЗ ЖИЗНИ</Text><Text style={s.videoTitle}>{copy[0]}</Text><Text style={s.videoSubtitle}>{copy[1]}</Text></View>
+        <View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white} /></View>
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+function FoodPart({ icon: foodIcon, value, label, color }: { icon: keyof typeof Ionicons.glyphMap; value: string; label: string; color: string }) {
+  return <View style={s.foodPart}><Ionicons name={foodIcon} size={22} color={color} /><Text style={[s.foodValue, { color }]}>{value}</Text><Text style={s.foodLabel}>{label}</Text></View>;
+}
+
+function WellnessModal({ kind, user, analyses, onClose, onUser }: { kind: "activity" | "nutrition" | null; user: User; analyses: Analysis[]; onClose: () => void; onUser: (u: User) => void }) {
+  const profile = user.patient_profile;
+  const [activity, setActivity] = useState<ActivitySurvey>(profile?.activity || { regular_sport: false });
+  const [nutrition, setNutrition] = useState<NutritionSurvey>(profile?.nutrition || {});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setActivity(profile?.activity || { regular_sport: false });
+    setNutrition(profile?.nutrition || {});
+  }, [kind, profile]);
+  if (!kind) return null;
+  const recommendation = kind === "activity" ? profile?.activity_recommendation : profile?.nutrition_recommendation;
+  async function submit() {
+    if (!profile) { setError("Сначала заполните возраст, рост и вес в профиле."); return; }
+    setBusy(true); setError("");
+    try {
+      const result = await api.recommendation(kind!, kind === "activity" ? { activity } : { nutrition });
+      onUser(result.user);
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось получить рекомендацию"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={s.modalBackdrop}><View style={s.wellnessSheet}>
+        <View style={s.rowBetween}><View><Text style={s.eyebrow}>ПЕРСОНАЛЬНЫЙ РАЗДЕЛ</Text><Text style={s.cardTitle}>{kind === "activity" ? "Активный образ жизни" : "Правильное питание"}</Text></View><Pressable style={s.iconButton} onPress={onClose}><Ionicons name="close" size={26} color={colors.ink} /></Pressable></View>
+        <ScrollView contentContainerStyle={s.wellnessBody} keyboardShouldPersistTaps="handled">
+          <View style={s.profileInsight}><Ionicons name="person-circle-outline" size={24} color={colors.brand} /><Text style={s.body}>{profile ? `${profile.age} лет · ИМТ ${profile.bmi} · учтены ${analyses.length} исследований` : "Для персонализации заполните профиль"}</Text></View>
+          <Text style={s.surveyTitle}>Короткий опрос</Text>
+          {kind === "activity" ? <>
+            <Text style={s.label}>Есть регулярный спорт?</Text><View style={s.choiceRow}><Choice active={activity.regular_sport} label="Да" onPress={() => setActivity({ ...activity, regular_sport: true })} /><Choice active={!activity.regular_sport} label="Нет" onPress={() => setActivity({ ...activity, regular_sport: false })} /></View>
+            <Field label="Какой вид активности?" placeholder="Ходьба, плавание, зал…" value={activity.sport_type || ""} onChangeText={(value: string) => setActivity({ ...activity, sport_type: value })} />
+            <Field label="Работа или основная занятость" placeholder="Работаю, учусь, не работаю…" value={activity.employment || ""} onChangeText={(value: string) => setActivity({ ...activity, employment: value })} />
+            <Text style={s.label}>Характер занятости</Text><View style={s.choiceRow}><Choice active={activity.work_activity === "sedentary"} label="Сидячая" onPress={() => setActivity({ ...activity, work_activity: "sedentary" })} /><Choice active={activity.work_activity === "mixed"} label="Смешанная" onPress={() => setActivity({ ...activity, work_activity: "mixed" })} /><Choice active={activity.work_activity === "physical"} label="Физическая" onPress={() => setActivity({ ...activity, work_activity: "physical" })} /></View>
+            <Field label="Минут активности в неделю" keyboardType="number-pad" placeholder="150" value={activity.weekly_minutes ? String(activity.weekly_minutes) : ""} onChangeText={(value: string) => setActivity({ ...activity, weekly_minutes: Number(value) })} />
+          </> : <>
+            <SurveyScale label="Жирная и жареная пища" value={nutrition.fatty_food} onChange={(value) => setNutrition({ ...nutrition, fatty_food: value })} />
+            <SurveyScale label="Сладкое и быстрые углеводы" value={nutrition.fast_carbs} onChange={(value) => setNutrition({ ...nutrition, fast_carbs: value })} />
+            <SurveyScale label="Овощи и фрукты" value={nutrition.vegetables} onChange={(value) => setNutrition({ ...nutrition, vegetables: value })} positive />
+            <SurveyScale label="Регулярность питания" value={nutrition.meal_regularity} onChange={(value) => setNutrition({ ...nutrition, meal_regularity: value })} positive />
+          </>}
+          {error ? <Text style={s.error}>{error}</Text> : null}
+          <Button label={busy ? "Формируем…" : "Получить рекомендацию ИИ"} disabled={busy} icon="sparkles-outline" onPress={() => void submit()} />
+          {recommendation ? <View style={s.aiRecommendation}><View style={s.aiRecommendationHead}><Ionicons name="sparkles" size={21} color={colors.violet} /><Text style={s.reviewTitle}>Персональная рекомендация</Text></View><Text style={s.body}>{recommendation}</Text><Text style={s.aiDisclaimer}>Информация носит образовательный характер и не заменяет врача.</Text></View> : null}
+        </ScrollView>
+      </View></View>
+    </Modal>
+  );
+}
+
+function Choice({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
+  return <Pressable onPress={onPress} style={[s.choice, active && s.choiceActive]}><Text style={[s.choiceText, active && s.choiceTextActive]}>{label}</Text></Pressable>;
+}
+function SurveyScale({ label, value, onChange, positive = false }: { label: string; value?: string; onChange: (value: string) => void; positive?: boolean }) {
+  return <View style={s.surveyScale}><Text style={s.label}>{label}</Text><View style={s.choiceRow}>{["rare", "sometimes", "often"].map((option, index) => <Choice key={option} active={value === option} label={(positive ? ["Редко", "Иногда", "Ежедневно"][index] : ["Редко", "Иногда", "Часто"][index]) || option} onPress={() => onChange(option)} />)}</View></View>;
 }
 function Analyses({
   compact,
@@ -466,6 +576,20 @@ function Analyses({
   onDelete?: (a: Analysis) => void;
   onUpload: () => void;
 }) {
+  const [mode, setMode] = useState<"research" | "dynamics">("research");
+  const [marker, setMarker] = useState("");
+  const [dynamicView, setDynamicView] = useState<"list" | "chart">("list");
+  const groups = useMemo(() => {
+    const grouped = new Map<string, Analysis[]>();
+    data.forEach((analysis) => {
+      const key = analysis.category || analysis.title || "Лабораторные исследования";
+      grouped.set(key, [...(grouped.get(key) || []), analysis]);
+    });
+    return Array.from(grouped.entries());
+  }, [data]);
+  const markerNames = useMemo(() => Array.from(new Set(data.flatMap((analysis) => analysis.markers.map((item) => item.name)))).sort(), [data]);
+  const series = useMemo(() => data.flatMap((analysis) => analysis.markers.filter((item) => item.name === marker && item.value !== undefined).map((item) => ({ date: analysis.created_at, value: item.value!, unit: item.unit || "", status: item.status }))).sort((a, b) => a.date.localeCompare(b.date)), [data, marker]);
+  const overall = data.find((analysis) => analysis.ai_review?.doctor_needed)?.ai_review || data[0]?.ai_review;
   return (
     <ScrollView contentContainerStyle={[s.scroll, compact && s.scrollCompact]}>
       <View style={[s.rowBetween, compact && s.analysesIntroCompact]}>
@@ -483,16 +607,15 @@ function Analyses({
           />
         )}
       </View>
-      {data.length ? (
-        <View style={s.cardGrid}>
-          {data.map((a) => (
-            <AnalysisCard
-              key={a.id}
-              item={a}
-              onPress={() => onOpen(a)}
-              onDelete={onDelete ? () => onDelete(a) : undefined}
-            />
-          ))}
+      {!doctor && data.length > 0 && overall ? <View style={[s.healthSummary, overall.doctor_needed && s.healthSummaryAlert]}><View style={s.healthSummaryHead}><Ionicons name={overall.doctor_needed ? "medical-outline" : "shield-checkmark-outline"} size={22} color={overall.doctor_needed ? colors.coral : colors.aqua} /><Text style={s.reviewTitle}>Кратко о состоянии</Text></View><Text style={s.body} numberOfLines={3}>{overall.summary}</Text>{overall.suggested_specialty ? <Text style={s.specialtyLine}>Рекомендуемый специалист: {overall.suggested_specialty}</Text> : null}</View> : null}
+      {!doctor && <View style={s.segment}><Segment active={mode === "research"} label="Исследования" icon="documents-outline" onPress={() => setMode("research")} /><Segment active={mode === "dynamics"} label="Динамика" icon="stats-chart-outline" onPress={() => setMode("dynamics")} /></View>}
+      {data.length && (doctor || mode === "research") ? (
+        <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View><View style={s.compactCardGrid}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} onPress={() => onOpen(analysis)} onDelete={onDelete ? () => onDelete(analysis) : undefined} />)}</View></View>)}</View>
+      ) : data.length && mode === "dynamics" ? (
+        <View style={s.dynamicsPanel}>
+          <Text style={s.surveyTitle}>Выберите показатель</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.markerPicker}>{markerNames.map((name) => <Choice key={name} active={marker === name} label={name} onPress={() => setMarker(name)} />)}</ScrollView>
+          {marker ? <><View style={s.viewSwitch}><Choice active={dynamicView === "list"} label="Список" onPress={() => setDynamicView("list")} /><Choice active={dynamicView === "chart"} label="График" onPress={() => setDynamicView("chart")} /></View>{series.length > 1 ? dynamicView === "list" ? <View style={s.dynamicList}>{series.map((point) => <View key={point.date} style={s.dynamicRow}><Text style={s.analysisMeta}>{date(point.date)}</Text><Text style={s.markerValue}>{point.value} {point.unit}</Text><Status value={point.status} /></View>)}</View> : <DynamicsChart series={series} /> : <Empty icon="stats-chart-outline" title="Недостаточно данных" text="Для оценки динамики показатель должен быть распознан минимум в двух исследованиях." />}</> : <Empty icon="finger-print-outline" title="Выберите показатель" text="Покажем его значения по датам списком или графиком." />}
         </View>
       ) : (
         <Empty
@@ -503,6 +626,14 @@ function Analyses({
       )}
     </ScrollView>
   );
+}
+
+function DynamicsChart({ series }: { series: Array<{ date: string; value: number; unit: string; status: string }> }) {
+  const values = series.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  return <View style={s.chartCard}><View style={s.chartBars}>{series.map((point) => { const height = 36 + ((point.value - min) / span) * 104; return <View key={point.date} style={s.chartColumn}><Text style={s.chartValue}>{point.value}</Text><View style={[s.chartBar, { height }, (point.status === "high" || point.status === "low") && s.chartBarAlert]} /><Text style={s.chartDate}>{date(point.date)}</Text></View>; })}</View><Text style={s.chartUnit}>{series[0]?.unit}</Text></View>;
 }
 function AnalysisCard({
   item,
@@ -552,26 +683,9 @@ function AnalysisCard({
         <Text style={s.analysisTitle} numberOfLines={1}>
           {item.title}
         </Text>
-        <Text style={s.analysisMeta}>
-          {date(item.created_at)} · {item.markers.length} показателей
-        </Text>
-        <View style={[s.pill, out || !recognized ? s.pillWarn : s.pillOk]}>
-          <Text
-            style={[
-              s.pillText,
-              out || !recognized ? { color: colors.amber } : undefined,
-            ]}
-          >
-            {!recognized
-              ? item.status === "failed"
-                ? "Ошибка распознавания"
-                : "Нужно проверить документ"
-              : out
-                ? `${out} вне диапазона`
-                : "Распознано без отклонений"}
-          </Text>
-        </View>
-        <Text style={s.openResult}>Открыть результат →</Text>
+        <Text style={s.analysisMeta}>{date(item.created_at)}</Text>
+        <Text style={s.analysisSummary} numberOfLines={2}>{item.ai_review?.summary || (recognized ? "Показатели распознаны" : "Документ требует проверки")}</Text>
+        <Text style={[s.analysisStateText, out > 0 && { color: colors.coral }]}>{!recognized ? "Нужно проверить" : out ? `${out} вне диапазона` : "Без отклонений"}</Text>
       </View>
       <View style={s.analysisCardActions}>
         {onDelete && (
@@ -606,6 +720,10 @@ function Consultations({
   onRefresh: () => void;
 }) {
   const [reply, setReply] = useState<Record<string, string>>({});
+  const [expanded, setExpanded] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [listening, setListening] = useState(false);
   async function send(c: Consultation) {
     try {
       await api.reply(c.id, reply[c.id] || "");
@@ -617,24 +735,44 @@ function Consultations({
       );
     }
   }
+  async function askAI() {
+    if (!question.trim()) return;
+    setAsking(true);
+    try { await api.aiConsult(question.trim()); setQuestion(""); setExpanded(false); onRefresh(); }
+    catch (e) { Alert.alert("Не удалось получить ответ", e instanceof Error ? e.message : "Ошибка"); }
+    finally { setAsking(false); }
+  }
+  function dictate() {
+    if (Platform.OS !== "web") { Alert.alert("Диктовка", "Используйте микрофон на системной клавиатуре устройства."); return; }
+    const speechWindow = window as typeof window & { SpeechRecognition?: new () => any; webkitSpeechRecognition?: new () => any };
+    const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!Recognition) { Alert.alert("Диктовка недоступна", "Этот браузер не поддерживает распознавание речи. Можно использовать микрофон клавиатуры."); return; }
+    const recognition = new Recognition(); recognition.lang = "ru-RU"; recognition.interimResults = false;
+    recognition.onstart = () => setListening(true); recognition.onend = () => setListening(false);
+    recognition.onerror = () => setListening(false);
+    recognition.onresult = (event: any) => { const transcript = event.results?.[0]?.[0]?.transcript || ""; setQuestion((current) => `${current}${current ? " " : ""}${transcript}`); };
+    recognition.start();
+  }
   return (
     <ScrollView contentContainerStyle={s.scroll}>
+      {user.role === "patient" && <View style={[s.complaintComposer, expanded && s.complaintComposerExpanded]}>
+        <Pressable onPress={() => setExpanded(true)} style={s.complaintPrompt}><View style={s.complaintIcon}><Ionicons name="chatbubble-ellipses-outline" size={23} color={colors.violet} /></View><View style={{ flex: 1 }}><Text style={s.complaintTitle}>Что вас беспокоит?</Text><Text style={s.complaintPlaceholder} numberOfLines={expanded ? 2 : 1}>{question || "Опишите жалобы или продиктуйте…"}</Text></View><Ionicons name={expanded ? "chevron-up" : "expand-outline"} size={22} color={colors.muted} /></Pressable>
+        {expanded && <><TextInput autoFocus multiline style={[s.input, s.complaintInput]} placeholder="Когда появились симптомы, где болит, что усиливает или облегчает состояние…" value={question} onChangeText={setQuestion} /><View style={s.complaintActions}><Pressable onPress={dictate} style={[s.micButton, listening && s.micButtonActive]}><Ionicons name={listening ? "radio" : "mic-outline"} size={22} color={listening ? colors.white : colors.violet} /><Text style={[s.micText, listening && { color: colors.white }]}>{listening ? "Слушаю…" : "Продиктовать"}</Text></Pressable><Button label={asking ? "Анализируем…" : "Получить ответ"} compact disabled={asking || !question.trim()} onPress={() => void askAI()} /></View><Text style={s.aiDisclaimer}>ИИ выполняет первичную маршрутизацию, не ставит диагноз и не заменяет экстренную или очную помощь.</Text></>}
+      </View>}
       {data.length ? (
         data.map((c) => (
-          <View key={c.id} style={s.consultCard}>
+          <View key={c.id} style={[s.consultCard, c.source === "ai" ? s.aiConsultCard : s.doctorConsultCard]}>
             <View style={s.rowBetween}>
-              <Text style={s.consultStatus}>
-                {c.status === "answered" ? "Ответ дан" : "Ожидает ответа"}
-              </Text>
+              <View style={s.consultType}><Ionicons name={c.source === "ai" ? "sparkles" : "medkit-outline"} size={17} color={c.source === "ai" ? colors.violet : colors.aqua} /><Text style={[s.consultStatus, c.source === "ai" && { color: colors.violet }]}>{c.source === "ai" ? "Помощник Lab" : c.status === "answered" ? "Ответ врача" : "Ожидает врача"}</Text></View>
               <Text style={s.analysisMeta}>{date(c.created_at)}</Text>
             </View>
-            <Text style={s.consultQuestion}>
-              {c.question || "Просьба прокомментировать результат"}
-            </Text>
+            <Text style={s.consultCardTitle}>{c.title || "Консультация"}</Text>
+            <Text style={s.consultQuestion} numberOfLines={3}>{c.question || "Просьба прокомментировать результат"}</Text>
             {c.reply ? (
               <View style={s.replyBox}>
-                <Text style={s.replyLabel}>Ответ врача</Text>
+                <Text style={s.replyLabel}>{c.source === "ai" ? "Рекомендация" : "Ответ врача"}</Text>
                 <Text style={s.body}>{c.reply}</Text>
+                {c.specialty ? <Text style={s.specialtyLine}>Обратиться: {c.specialty}</Text> : null}
               </View>
             ) : user.role === "doctor" ? (
               <>
@@ -672,7 +810,112 @@ function Consultations({
     </ScrollView>
   );
 }
-function Profile({ user, onLogout }: { user: User; onLogout: () => void }) {
+
+function DoctorPatients({ patientsAnalyses, onOpen }: { patientsAnalyses: Analysis[]; onOpen: (a: Analysis) => void }) {
+  const [patients, setPatients] = useState<User[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<User | null>(null);
+  useEffect(() => { api.patients().then(setPatients).catch(() => setPatients([])); }, []);
+  const patientAnalyses = selectedPatient ? patientsAnalyses.filter((a) => a.owner_id === selectedPatient.id) : [];
+  return <ScrollView contentContainerStyle={s.scroll}>
+    {!selectedPatient ? <>
+      <Text style={s.sectionIntro}>Здесь отображаются только пациенты, которые сами запросили услугу и открыли врачу доступ к анализу.</Text>
+      <View style={s.doctorGrid}>{patients.map((patient) => <Pressable key={patient.id} style={s.doctorDirectoryCard} onPress={() => setSelectedPatient(patient)}><View style={s.doctorAvatar}><Text style={s.avatarText}>{initials(patient.full_name)}</Text></View><View style={{ flex: 1 }}><Text style={s.doctorDirectoryName}>{patient.full_name}</Text><Text style={s.specialtyLine}>{patient.patient_profile ? `${patient.patient_profile.age} лет · ИМТ ${patient.patient_profile.bmi}` : "Профиль не заполнен"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted} /></Pressable>)}</View>
+      {!patients.length && <Empty icon="people-outline" title="Запросов пациентов пока нет" text="Пациент появится здесь после запроса консультации, записи или вызова на дом." />}
+    </> : <>
+      <Pressable style={s.backLink} onPress={() => setSelectedPatient(null)}><Ionicons name="arrow-back" size={18} color={colors.brand} /><Text style={s.link}>Все пациенты</Text></Pressable>
+      <View style={s.patientRecord}><Text style={s.eyebrow}>КАРТА ПАЦИЕНТА</Text><Text style={s.cardTitle}>{selectedPatient.full_name}</Text>{selectedPatient.patient_profile && <Text style={s.analysisMeta}>{selectedPatient.patient_profile.age} лет · {selectedPatient.patient_profile.height_cm} см · {selectedPatient.patient_profile.weight_kg} кг · ИМТ {selectedPatient.patient_profile.bmi}</Text>}</View>
+      <Text style={s.surveyTitle}>Доступные исследования</Text>
+      <View style={s.compactCardGrid}>{patientAnalyses.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} onPress={() => onOpen(analysis)} />)}</View>
+      {!patientAnalyses.length && <Empty icon="flask-outline" title="Нет доступных исследований" text="Пациент ещё не открыл анализ этому врачу." />}
+    </>}
+  </ScrollView>;
+}
+
+function Consilium() {
+  const [patients, setPatients] = useState<User[]>([]);
+  const [patientID, setPatientID] = useState("");
+  const [objective, setObjective] = useState("");
+  const [clinical, setClinical] = useState("");
+  const [result, setResult] = useState<ClinicalAssistResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.patients().then((list) => { setPatients(list); setPatientID(list[0]?.id || ""); }).catch(() => setPatients([])); }, []);
+  async function ask() {
+    if (!patientID || (!objective.trim() && !clinical.trim())) { Alert.alert("Недостаточно данных", "Выберите пациента и внесите объективные или клинические данные."); return; }
+    setBusy(true); setResult(null);
+    try { setResult(await api.clinicalAssist({ patientID, objective, clinical })); }
+    catch (e) { Alert.alert("Консилиум недоступен", e instanceof Error ? e.message : "Ошибка"); }
+    finally { setBusy(false); }
+  }
+  return <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+    <View style={s.clinicalNotice}><Ionicons name="shield-checkmark-outline" size={24} color={colors.brand} /><Text style={s.aiDisclaimer}>Инструмент поддержки решения для врача. Он не назначает лечение и не заменяет проверку действующих клинических рекомендаций.</Text></View>
+    <Text style={s.surveyTitle}>Пациент</Text><ScrollView horizontal contentContainerStyle={s.markerPicker} showsHorizontalScrollIndicator={false}>{patients.map((p) => <Choice key={p.id} label={p.full_name} active={patientID === p.id} onPress={() => setPatientID(p.id)} />)}</ScrollView>
+    <Field label="Объективные данные" multiline value={objective} onChangeText={setObjective} placeholder="АД, ЧСС, температура, осмотр…" />
+    <Field label="Клинические данные и вопрос" multiline value={clinical} onChangeText={setClinical} placeholder="Жалобы, анамнез, сопутствующие состояния, что требуется оценить…" />
+    <Button label={busy ? "Анализируем…" : "Получить поддержку консилиума"} disabled={busy || !patients.length} onPress={() => void ask()} />
+    {result && <View style={s.consiliumResult}><Text style={s.reviewTitle}>Клиническая оценка</Text><Text style={s.analysisSummary}>{result.assessment}</Text><ClinicalList title="Красные флаги" values={result.red_flags} alert /><ClinicalList title="Что уточнить и проверить" values={result.suggested_checks} /><ClinicalList title="Возможная тактика" values={result.tactics} /><ClinicalList title="Источники для сверки" values={result.guideline_refs} /><Text style={s.aiDisclaimer}>{result.limitations}</Text></View>}
+  </ScrollView>;
+}
+
+function ClinicalList({ title, values, alert = false }: { title: string; values: string[]; alert?: boolean }) {
+  if (!values?.length) return null;
+  return <View style={s.clinicalBlock}><Text style={[s.surveyTitle, alert && { color: colors.red }]}>{title}</Text>{values.map((value, index) => <Text key={`${title}-${index}`} style={s.analysisSummary}>• {value}</Text>)}</View>;
+}
+
+const guidelineSources = [
+  { title: "Рубрикатор Минздрава России", subtitle: "Российские клинические рекомендации", url: "https://cr.minzdrav.gov.ru/", icon: "flag-outline" as const },
+  { title: "ESC Guidelines", subtitle: "Кардиология · европейские рекомендации", url: "https://www.escardio.org/guidelines", icon: "heart-outline" as const },
+  { title: "ACC/AHA Guidelines", subtitle: "Кардиология · американские рекомендации", url: "https://www.acc.org/Guidelines", icon: "pulse-outline" as const },
+  { title: "NICE Guidance", subtitle: "Терапия, эндокринология, нефрология и другие разделы", url: "https://www.nice.org.uk/guidance/conditions-and-diseases", icon: "library-outline" as const },
+];
+
+function Guidelines() {
+  const [query, setQuery] = useState("");
+  const filtered = guidelineSources.filter((item) => `${item.title} ${item.subtitle}`.toLowerCase().includes(query.toLowerCase()));
+  return <ScrollView contentContainerStyle={s.scroll}>
+    <View style={s.doctorSearch}><Ionicons name="search" size={21} color={colors.muted} /><TextInput style={s.doctorSearchInput} value={query} onChangeText={setQuery} placeholder="Кардиология, терапия, нефрология…" /></View>
+    <Text style={s.sectionIntro}>Приложение открывает официальный каталог, где врач выбирает актуальную редакцию и нужный раздел. Тексты рекомендаций не копируются и не изменяются приложением.</Text>
+    <View style={s.guidelineGrid}>{filtered.map((item) => <Pressable key={item.title} style={s.guidelineCard} onPress={() => void Linking.openURL(item.url)}><View style={s.wellnessIcon}><Ionicons name={item.icon} size={24} color={colors.brand} /></View><View style={{ flex: 1 }}><Text style={s.doctorDirectoryName}>{item.title}</Text><Text style={s.analysisMeta}>{item.subtitle}</Text></View><Ionicons name="open-outline" size={20} color={colors.brand} /></Pressable>)}</View>
+    <View style={s.clinicalNotice}><Ionicons name="refresh-outline" size={22} color={colors.amber} /><Text style={s.aiDisclaimer}>Перед клиническим решением проверяйте дату, статус и применимость документа на официальном сайте.</Text></View>
+  </ScrollView>;
+}
+
+function DoctorsScreen({ user, analyses, onRefresh }: { user: User; analyses: Analysis[]; onRefresh: () => void }) {
+  const [query, setQuery] = useState("");
+  const [doctors, setDoctors] = useState<User[]>([]);
+  const [selectedDoctor, setSelectedDoctor] = useState<User | null>(null);
+  const [analysisID, setAnalysisID] = useState(analyses[0]?.id || "");
+  const [question, setQuestion] = useState("Прошу прокомментировать результаты и дальнейшие действия.");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (user.role === "patient") api.doctors(query).then(setDoctors).catch(() => setDoctors([])); }, [query, user.role]);
+  async function request(serviceType: "consultation" | "appointment" | "home_visit", appointmentAt?: string) {
+    if (!selectedDoctor || !analysisID) { Alert.alert("Выберите анализ", "Врачу необходимо открыть доступ хотя бы к одному исследованию."); return; }
+    setBusy(true);
+    try { await api.requestDoctor({ analysisID, doctorID: selectedDoctor.id, question, serviceType, appointmentAt }); setSelectedDoctor(null); onRefresh(); Alert.alert("Запрос отправлен", "Он появился во вкладке консультаций."); }
+    catch (e) { Alert.alert("Не удалось отправить", e instanceof Error ? e.message : "Ошибка"); }
+    finally { setBusy(false); }
+  }
+  if (user.role === "doctor") return <ScrollView contentContainerStyle={s.scroll}><Empty icon="medical-outline" title="Каталог коллег" text="Поиск коллег и направление пациентов будет добавлено после верификации врачебных профилей." /></ScrollView>;
+  return <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+    <View style={s.doctorSearch}><Ionicons name="search" size={21} color={colors.muted} /><TextInput style={s.doctorSearchInput} placeholder="Специальность: терапевт, кардиолог…" value={query} onChangeText={setQuery} /></View>
+    <Text style={s.sectionIntro}>Выберите специалиста, откройте нужный анализ и запросите услугу.</Text>
+    <View style={s.doctorGrid}>{doctors.map((doctorItem) => <Pressable key={doctorItem.id} onPress={() => setSelectedDoctor(doctorItem)} style={({ pressed }) => [s.doctorDirectoryCard, pressed && { opacity: 0.75 }]}><View style={s.doctorAvatar}><Text style={s.avatarText}>{initials(doctorItem.full_name)}</Text></View><View style={{ flex: 1 }}><Text style={s.doctorDirectoryName}>{doctorItem.full_name}</Text><Text style={s.specialtyLine}>{doctorItem.specialization}</Text><View style={s.doctorOptions}><Text style={s.doctorOption}>Онлайн</Text>{doctorItem.appointment_slots?.length ? <Text style={s.doctorOption}>Приём</Text> : null}{doctorItem.home_visits ? <Text style={s.doctorOption}>На дом</Text> : null}</View></View><Ionicons name="chevron-forward" size={20} color={colors.muted} /></Pressable>)}</View>
+    {!doctors.length && <Empty icon="medkit-outline" title="Специалисты не найдены" text="Попробуйте другое название специальности." />}
+    <Modal visible={!!selectedDoctor} transparent animationType="slide" onRequestClose={() => setSelectedDoctor(null)}><View style={s.modalBackdrop}><View style={s.doctorRequestSheet}><View style={s.rowBetween}><View><Text style={s.eyebrow}>ЗАПРОС СПЕЦИАЛИСТУ</Text><Text style={s.cardTitle}>{selectedDoctor?.full_name}</Text><Text style={s.specialtyLine}>{selectedDoctor?.specialization}</Text></View><Pressable style={s.iconButton} onPress={() => setSelectedDoctor(null)}><Ionicons name="close" size={26} /></Pressable></View><Text style={s.label}>Какой анализ открыть врачу</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.markerPicker}>{analyses.map((analysis) => <Choice key={analysis.id} active={analysisID === analysis.id} label={`${analysis.title} · ${date(analysis.created_at)}`} onPress={() => setAnalysisID(analysis.id)} />)}</ScrollView><Field label="Комментарий врачу" multiline value={question} onChangeText={setQuestion} /><View style={s.serviceButtons}><Button label="Консультация" compact disabled={busy} onPress={() => void request("consultation")} />{selectedDoctor?.appointment_slots?.[0] ? <Button label="Записаться" compact kind="ghost" disabled={busy} onPress={() => void request("appointment", selectedDoctor.appointment_slots![0])} /> : null}{selectedDoctor?.home_visits ? <Button label="Вызов на дом" compact kind="ghost" disabled={busy} onPress={() => void request("home_visit")} /> : null}</View></View></View></Modal>
+  </ScrollView>;
+}
+
+function Profile({ user, onUpdated, onLogout }: { user: User; onUpdated: (u: User) => void; onLogout: () => void }) {
+  const profile = user.patient_profile;
+  const [age, setAge] = useState(profile ? String(profile.age) : "");
+  const [height, setHeight] = useState(profile ? String(profile.height_cm) : "");
+  const [weight, setWeight] = useState(profile ? String(profile.weight_kg) : "");
+  const [busy, setBusy] = useState(false);
+  async function saveProfile() {
+    setBusy(true);
+    try { const updated = await api.updatePatientProfile({ age: Number(age), heightCM: Number(height), weightKG: Number(weight), activity: profile?.activity || { regular_sport: false }, nutrition: profile?.nutrition || {} }); onUpdated(updated); }
+    catch (e) { Alert.alert("Не удалось сохранить", e instanceof Error ? e.message : "Ошибка"); }
+    finally { setBusy(false); }
+  }
   return (
     <ScrollView contentContainerStyle={s.scroll}>
       <View style={s.profileCard}>
@@ -681,6 +924,7 @@ function Profile({ user, onLogout }: { user: User; onLogout: () => void }) {
             {initials(user.full_name)}
           </Text>
         </View>
+        {user.role === "patient" && <View style={s.profileVitals}><Text style={s.surveyTitle}>Показатели профиля</Text><View style={s.registrationVitals}><Field label="Возраст" keyboardType="number-pad" value={age} onChangeText={setAge} /><Field label="Рост, см" keyboardType="decimal-pad" value={height} onChangeText={setHeight} /><Field label="Вес, кг" keyboardType="decimal-pad" value={weight} onChangeText={setWeight} /></View>{profile ? <View style={s.bmiCard}><Text style={s.bmiValue}>ИМТ {profile.bmi}</Text><Text style={s.analysisMeta}>Используется только для персонализации рекомендаций, не как диагноз.</Text></View> : null}<Button label={busy ? "Сохраняем…" : "Сохранить профиль"} compact disabled={busy} onPress={() => void saveProfile()} /></View>}
         <Text style={s.profileName}>{user.full_name}</Text>
         <Text style={s.cardHint}>{user.email}</Text>
         <View style={s.roleBadge}>
@@ -723,14 +967,12 @@ function UploadModal({
   const { width } = useWindowDimensions();
   const compact = width < 520;
   const [asset, setAsset] = useState<Asset | null>(null);
-  const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   useEffect(() => {
     if (visible) {
       setAsset(seed?.uri ? seed : null);
-      setTitle("");
       setError("");
       setProgress(0);
     }
@@ -819,10 +1061,7 @@ function UploadModal({
     setBusy(true);
     setError("");
     try {
-      const result = await api.upload(
-        asset,
-        title || asset.name.replace(/\.[^.]+$/, ""),
-      );
+      const result = await api.upload(asset);
       setProgress(1);
       await new Promise((resolve) => setTimeout(resolve, 300));
       onDone(result);
@@ -884,12 +1123,7 @@ function UploadModal({
               />
             </View>
           )}
-          <Field
-            label="Название"
-            placeholder="Например, общий анализ крови"
-            value={title}
-            onChangeText={setTitle}
-          />
+          <Text style={s.autoTitleHint}>Название определим автоматически по показателям: ОАК, биохимия, гормоны или исследование мочи.</Text>
           {error ? <Text style={s.error}>{error}</Text> : null}
           {busy && (
             <View style={s.progressPanel} accessibilityRole="progressbar">
@@ -1281,7 +1515,7 @@ function Sidebar({
         <Text style={s.brandText}>lab</Text>
       </View>
       <View style={s.nav}>
-        {(Object.keys(labels) as Tab[]).map((t) => (
+        {tabsFor(user.role).map((t) => (
           <Pressable
             key={t}
             accessibilityRole="button"
@@ -1311,10 +1545,10 @@ function Sidebar({
     </View>
   );
 }
-function Bottom({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
+function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) => void }) {
   return (
     <View style={s.bottom}>
-      {(Object.keys(labels) as Tab[]).map((t) => (
+      {tabsFor(role).map((t) => (
         <Pressable
           key={t}
           accessibilityRole="button"
@@ -1855,7 +2089,10 @@ const s = StyleSheet.create({
   },
   authAsideCompact: {
     flex: 0,
+    flexShrink: 0,
+    height: 230,
     minHeight: 230,
+    maxHeight: 230,
     paddingHorizontal: 22,
     paddingTop: 24,
     paddingBottom: 54,
@@ -2289,6 +2526,102 @@ const s = StyleSheet.create({
     marginTop: 22,
   },
   verifyText: { flex: 1, fontSize: 12, lineHeight: 18, color: colors.amber },
+  registrationVitals: { width: "100%", flexDirection: "column", gap: 2 },
+  patientHome: { width: "100%", maxWidth: 920, alignSelf: "center", padding: 24, paddingBottom: 100, gap: 16 },
+  patientHomeCompact: { padding: 12, gap: 12 },
+  patientWelcome: { minHeight: 132, paddingVertical: 20 },
+  patientWelcomeCompact: { minHeight: 112, padding: 17 },
+  wellnessCardHead: { flexDirection: "row", alignItems: "center", gap: 12 },
+  wellnessIcon: { width: 44, height: 44, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: colors.violetSoft },
+  wellnessTitle: { fontSize: 18, fontWeight: "800", color: colors.ink },
+  wellnessSubtitle: { fontSize: 13, lineHeight: 18, color: colors.muted, marginTop: 2 },
+  nutritionHomeCard: { minHeight: 160, borderRadius: 24, padding: 18, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, ...shadow },
+  foodInfographic: { flexDirection: "row", gap: 8, marginTop: 16 },
+  foodPart: { flex: 1, minHeight: 68, borderRadius: 16, backgroundColor: colors.paper, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 5 },
+  foodValue: { fontSize: 18, fontWeight: "900" },
+  foodLabel: { fontSize: 11, color: colors.muted },
+  videoHomeCard: { height: 210, borderRadius: 25, overflow: "hidden", backgroundColor: colors.brandDark, ...shadow },
+  homeVideo: { width: "100%", height: "100%" },
+  videoOverlay: { ...StyleSheet.absoluteFillObject, padding: 20, flexDirection: "row", alignItems: "flex-end" },
+  videoEyebrow: { fontSize: 10, letterSpacing: 1.4, fontWeight: "900", color: "#C9D6FF" },
+  videoTitle: { fontSize: 26, fontWeight: "900", color: colors.white, marginTop: 5 },
+  videoSubtitle: { color: "#EEF3FF", fontSize: 14, marginTop: 3 },
+  videoArrow: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#FFFFFF24", alignItems: "center", justifyContent: "center" },
+  wellnessSheet: { width: "100%", maxWidth: 720, maxHeight: "92%", alignSelf: "center", marginTop: "auto", backgroundColor: colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22 },
+  wellnessBody: { gap: 15, paddingVertical: 18, paddingBottom: 40 },
+  profileInsight: { flexDirection: "row", alignItems: "center", gap: 9, backgroundColor: colors.blueSoft, borderRadius: 15, padding: 13 },
+  surveyTitle: { fontSize: 17, fontWeight: "800", color: colors.ink },
+  choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  choice: { borderRadius: 13, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line },
+  choiceActive: { backgroundColor: colors.blueSoft, borderColor: colors.brand },
+  choiceText: { color: colors.muted, fontSize: 13, fontWeight: "700" },
+  choiceTextActive: { color: colors.brand },
+  surveyScale: { gap: 8 },
+  aiRecommendation: { padding: 17, borderRadius: 18, backgroundColor: colors.violetSoft, gap: 10 },
+  aiRecommendationHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  aiDisclaimer: { flex: 1, color: colors.muted, fontSize: 11, lineHeight: 16 },
+  reviewTitle: { color: colors.ink, fontSize: 15, fontWeight: "800" },
+  healthSummary: { padding: 17, borderRadius: 19, backgroundColor: colors.aquaSoft, borderLeftWidth: 4, borderLeftColor: colors.aqua, gap: 8 },
+  healthSummaryAlert: { backgroundColor: colors.coralSoft, borderLeftColor: colors.coral },
+  healthSummaryHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  specialtyLine: { color: colors.brand, fontSize: 12, fontWeight: "700", marginTop: 7 },
+  analysisGroups: { gap: 22 },
+  analysisGroup: { gap: 10 },
+  groupTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  groupTitle: { fontSize: 18, fontWeight: "800", color: colors.ink },
+  groupCount: { minWidth: 26, paddingHorizontal: 7, paddingVertical: 3, textAlign: "center", borderRadius: 10, overflow: "hidden", backgroundColor: colors.blueSoft, color: colors.brand, fontWeight: "800", fontSize: 11 },
+  compactCardGrid: { gap: 10 },
+  dynamicsPanel: { backgroundColor: colors.white, padding: 18, borderRadius: 22, borderWidth: 1, borderColor: colors.line, gap: 15, ...shadow },
+  markerPicker: { gap: 8, paddingVertical: 5 },
+  viewSwitch: { flexDirection: "row", gap: 8 },
+  dynamicList: { gap: 8 },
+  dynamicRow: { minHeight: 54, borderRadius: 14, paddingHorizontal: 14, backgroundColor: colors.paper, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  chartCard: { minHeight: 250, padding: 16, borderRadius: 18, backgroundColor: colors.paper },
+  chartBars: { minHeight: 205, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-around", gap: 8 },
+  chartColumn: { flex: 1, alignItems: "center", justifyContent: "flex-end", minWidth: 44 },
+  chartValue: { fontSize: 11, fontWeight: "800", color: colors.ink, marginBottom: 5 },
+  chartBar: { width: 28, minHeight: 30, borderRadius: 8, backgroundColor: colors.aqua },
+  chartBarAlert: { backgroundColor: colors.coral },
+  chartDate: { fontSize: 9, color: colors.muted, marginTop: 7, textAlign: "center" },
+  chartUnit: { textAlign: "center", fontSize: 11, color: colors.muted, marginTop: 8 },
+  analysisSummary: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 5 },
+  analysisStateText: { color: colors.aqua, fontWeight: "800", fontSize: 11, marginTop: 6 },
+  autoTitleHint: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.blueSoft, padding: 12, borderRadius: 13 },
+  complaintComposer: { borderRadius: 22, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.violetSoft, padding: 14, ...shadow },
+  complaintComposerExpanded: { borderColor: colors.violet },
+  complaintPrompt: { flexDirection: "row", alignItems: "center", gap: 11 },
+  complaintIcon: { width: 44, height: 44, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: colors.violetSoft },
+  complaintTitle: { color: colors.ink, fontSize: 16, fontWeight: "800" },
+  complaintPlaceholder: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  complaintInput: { minHeight: 130, marginTop: 15, textAlignVertical: "top", paddingTop: 13 },
+  complaintActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 10 },
+  micButton: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 13, borderRadius: 13, backgroundColor: colors.violetSoft },
+  micButtonActive: { backgroundColor: colors.violet },
+  micText: { fontSize: 12, fontWeight: "800", color: colors.violet },
+  aiConsultCard: { borderLeftWidth: 4, borderLeftColor: colors.violet, backgroundColor: "#FEFCFF" },
+  doctorConsultCard: { borderLeftWidth: 4, borderLeftColor: colors.aqua },
+  consultType: { flexDirection: "row", alignItems: "center", gap: 6 },
+  consultCardTitle: { color: colors.ink, fontSize: 17, fontWeight: "800", marginTop: 12 },
+  doctorSearch: { minHeight: 54, borderRadius: 17, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  doctorSearchInput: { flex: 1, minWidth: 0, fontSize: 15, color: colors.ink, outlineStyle: "none" } as any,
+  doctorGrid: { gap: 11 },
+  doctorDirectoryCard: { minHeight: 86, padding: 15, borderRadius: 20, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, flexDirection: "row", alignItems: "center", gap: 13, ...shadow },
+  doctorAvatar: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
+  doctorDirectoryName: { color: colors.ink, fontSize: 15, fontWeight: "800" },
+  doctorOptions: { flexDirection: "row", flexWrap: "wrap", gap: 5, marginTop: 7 },
+  doctorOption: { fontSize: 10, fontWeight: "800", color: colors.brand, backgroundColor: colors.blueSoft, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4 },
+  doctorRequestSheet: { width: "100%", maxWidth: 680, maxHeight: "88%", alignSelf: "center", marginTop: "auto", backgroundColor: colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, gap: 17 },
+  serviceButtons: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
+  profileVitals: { width: "100%", gap: 13, marginBottom: 18 },
+  bmiCard: { width: "100%", borderRadius: 16, padding: 14, backgroundColor: colors.aquaSoft },
+  bmiValue: { fontSize: 19, fontWeight: "900", color: colors.aqua },
+  patientRecord: { borderRadius: 22, padding: 20, backgroundColor: colors.blueSoft, gap: 6 },
+  backLink: { flexDirection: "row", alignItems: "center", gap: 7, alignSelf: "flex-start" },
+  clinicalNotice: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 14, borderRadius: 16, backgroundColor: colors.amberSoft },
+  consiliumResult: { borderRadius: 22, padding: 19, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, gap: 10, ...shadow },
+  clinicalBlock: { gap: 3, marginTop: 8 },
+  guidelineGrid: { gap: 11 },
+  guidelineCard: { minHeight: 84, borderRadius: 20, padding: 15, flexDirection: "row", alignItems: "center", gap: 13, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, ...shadow },
   loading: {
     flex: 1,
     alignItems: "center",
