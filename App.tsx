@@ -5,7 +5,7 @@ import {
   FlatList,
   Image,
   Linking,
-  Modal,
+  Modal as NativeModal,
   Platform,
   Pressable,
   SafeAreaView,
@@ -31,8 +31,13 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.0";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.1";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
+function Modal(props: React.ComponentProps<typeof NativeModal>) {
+  if (!props.visible) return null;
+  if (Platform.OS === "web") return <View style={s.webModalRoot}>{props.children}</View>;
+  return <NativeModal {...props} />;
+}
 const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   home: "home-outline",
   analyses: "flask-outline",
@@ -753,33 +758,83 @@ function DoctorsScreen({ user, analyses, onRefresh }: { user: User; analyses: An
   const [query, setQuery] = useState("");
   const [doctors, setDoctors] = useState<User[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<User | null>(null);
-  const [action, setAction] = useState<"profile"|"consultation"|"appointment"|null>(null);
+  const [action, setAction] = useState<"profile" | "consultation" | "appointment">("profile");
   const [analysisID, setAnalysisID] = useState(analyses[0]?.id || "");
   const [question, setQuestion] = useState("Прошу прокомментировать результаты и дальнейшие действия.");
   const [availableSlots, setAvailableSlots] = useState<ScheduleSlot[]>([]);
   const [appointmentAt, setAppointmentAt] = useState("");
   const [busy, setBusy] = useState(false);
-  const [slotsBusy,setSlotsBusy]=useState(false);
-  const [slotsError,setSlotsError]=useState("");
-  useEffect(() => { if (user.role === "patient") api.doctors(query).then(setDoctors).catch(() => setDoctors([])); }, [query, user.role]);
-  useEffect(() => { if (!selectedDoctor||action!=="appointment") { setAvailableSlots([]); return; } const from=new Date(); const to=addDays(from,32);setSlotsBusy(true);setSlotsError(""); api.schedule(selectedDoctor.id,from.toISOString(),to.toISOString()).then(list=>setAvailableSlots(list.filter(x=>x.status==="available"&&new Date(x.start_at)>from))).catch(e=>setSlotsError(e instanceof Error?e.message:"Расписание недоступно")).finally(()=>setSlotsBusy(false)); }, [selectedDoctor,action]);
-  async function request(serviceType: "consultation" | "appointment" | "home_visit", appointmentAt?: string) {
+  const [slotsBusy, setSlotsBusy] = useState(false);
+  const [slotsError, setSlotsError] = useState("");
+
+  useEffect(() => {
+    if (user.role === "patient") api.doctors(query).then(setDoctors).catch(() => setDoctors([]));
+  }, [query, user.role]);
+  useEffect(() => {
+    if (!selectedDoctor || action !== "appointment") return;
+    const from = new Date();
+    setSlotsBusy(true);
+    setSlotsError("");
+    api.schedule(selectedDoctor.id, from.toISOString(), addDays(from, 32).toISOString())
+      .then((list) => setAvailableSlots(list.filter((slot) => slot.status === "available" && new Date(slot.start_at) > from)))
+      .catch((error) => setSlotsError(error instanceof Error ? error.message : "Расписание недоступно"))
+      .finally(() => setSlotsBusy(false));
+  }, [selectedDoctor, action]);
+
+  async function request(serviceType: "consultation" | "appointment" | "home_visit", at?: string) {
     if (!selectedDoctor) return;
-    if (serviceType === "consultation" && !analysisID) { Alert.alert("Выберите анализ", "Для консультации откройте врачу хотя бы одно исследование."); return; }
-    if (serviceType === "appointment" && !appointmentAt) { Alert.alert("Выберите время", "Выберите свободную ячейку в расписании врача."); return; }
+    if (serviceType === "consultation" && !analysisID) {
+      Alert.alert("Выберите анализ", "Для консультации нужен хотя бы один анализ.");
+      return;
+    }
+    if (serviceType === "appointment" && !at) {
+      Alert.alert("Выберите время", "Выберите свободную ячейку врача.");
+      return;
+    }
     setBusy(true);
-    try { await api.requestDoctor({ analysisID: analysisID || undefined, doctorID: selectedDoctor.id, question, serviceType, appointmentAt }); setSelectedDoctor(null);setAction(null); onRefresh(); Alert.alert(serviceType === "appointment" ? "Вы записаны" : "Запрос отправлен", serviceType === "appointment" ? "Время закреплено в расписании врача." : "Врач увидит запрос в карте пациента."); }
-    catch (e) { Alert.alert("Не удалось отправить", e instanceof Error ? e.message : "Ошибка"); }
-    finally { setBusy(false); }
+    try {
+      await api.requestDoctor({ analysisID: analysisID || undefined, doctorID: selectedDoctor.id, question, serviceType, appointmentAt: at });
+      setSelectedDoctor(null);
+      onRefresh();
+      Alert.alert(serviceType === "appointment" ? "Вы записаны" : "Запрос отправлен");
+    } catch (error) {
+      Alert.alert("Не удалось отправить", error instanceof Error ? error.message : "Ошибка");
+    } finally {
+      setBusy(false);
+    }
   }
-  if (user.role === "doctor") return <ScrollView contentContainerStyle={s.scroll}><Empty icon="medical-outline" title="Каталог коллег" text="Поиск коллег и направление пациентов будет добавлено после верификации врачебных профилей." /></ScrollView>;
-  function open(doctor:User,next:typeof action){setSelectedDoctor(doctor);setAction(next);setAppointmentAt("")}
-  function close(){setSelectedDoctor(null);setAction(null)}
-  return <><ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
-    <View style={s.doctorSearch}><Ionicons name="search" size={21} color={colors.muted} /><TextInput style={s.doctorSearchInput} placeholder="Специальность: терапевт, кардиолог…" value={query} onChangeText={setQuery} /></View>
-    <View style={s.doctorGrid}>{doctors.map((doctorItem) => <View key={doctorItem.id} style={s.doctorDirectoryCard}><AvatarView user={doctorItem} size={48}/><View style={{ flex: 1,minWidth:0 }}><Text numberOfLines={1} style={s.doctorDirectoryName}>{doctorItem.full_name}</Text><Text style={s.specialtyLine}>{doctorItem.specialization}</Text><View style={s.doctorActionRow}><MiniAction label="Профиль" onPress={()=>open(doctorItem,"profile")}/><MiniAction label="Консультация" onPress={()=>open(doctorItem,"consultation")}/><MiniAction label="Записаться" onPress={()=>open(doctorItem,"appointment")}/></View></View></View>)}</View>
-    {!doctors.length && <Empty icon="medkit-outline" title="Специалисты не найдены" text="Попробуйте другое название специальности." />}
-  </ScrollView><Modal visible={!!selectedDoctor} animationType="slide" onRequestClose={close}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable style={s.iconButton} onPress={close}><Ionicons name="arrow-back" size={24}/></Pressable><Text style={s.fullScreenTitle}>{action==="profile"?"Профиль врача":action==="appointment"?"Запись на приём":"Запрос консультации"}</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.fullScreenBody} keyboardShouldPersistTaps="handled"><View style={s.doctorProfileHero}><AvatarView user={selectedDoctor!} size={84}/><Text style={s.cardTitle}>{selectedDoctor?.full_name}</Text><Text style={s.specialtyLine}>{selectedDoctor?.specialization}</Text>{selectedDoctor?.verified&&<Text style={s.verifiedText}>✓ Профиль подтверждён</Text>}</View>{action==="profile"?<View style={s.patientRecord}><Text style={s.replyLabel}>Профессиональная информация</Text><Text style={s.body}>Специальность: {selectedDoctor?.specialization||"не указана"}</Text><Text style={s.body}>Номер лицензии: {selectedDoctor?.license_number||"не указан"}</Text><Text style={s.body}>Выезд на дом: {selectedDoctor?.home_visits?"доступен":"не заявлен"}</Text></View>:action==="consultation"?<><Text style={s.label}>Выберите анализ</Text><View style={s.choiceWrap}>{analyses.map(a=><Choice key={a.id} active={analysisID===a.id} label={`${a.title} · ${date(a.created_at)}`} onPress={()=>setAnalysisID(a.id)}/>)}</View><Field label="Вопрос врачу" multiline value={question} onChangeText={setQuestion}/><Button label={busy?"Отправляем…":"Отправить запрос"} disabled={busy||!analysisID} onPress={()=>void request("consultation")}/></>:<>{slotsBusy?<ActivityIndicator color={colors.brand}/>:slotsError?<Text style={s.error}>{slotsError}</Text>:availableSlots.length?<View style={s.slotGroups}>{availableSlots.map(slot=><Choice key={slot.id} active={appointmentAt===slot.start_at} label={new Date(slot.start_at).toLocaleString("ru-RU",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} onPress={()=>setAppointmentAt(slot.start_at)}/>)}</View>:<Empty icon="calendar-outline" title="Будущих часов пока нет" text="Врач ещё не открыл новые ячейки. Прошедшие часы пациентам не показываются."/>}<Field label="Комментарий (необязательно)" multiline value={question} onChangeText={setQuestion}/><Button label={busy?"Записываем…":"Подтвердить запись"} disabled={busy||!appointmentAt} onPress={()=>void request("appointment",appointmentAt)}/></>}</ScrollView></SafeAreaView></Modal></>;
+  function close() { setSelectedDoctor(null); setAction("profile"); }
+  if (user.role === "doctor") return <ScrollView contentContainerStyle={s.scroll}><Empty icon="medical-outline" title="Каталог коллег" text="Раздел готовится." /></ScrollView>;
+
+  return <>
+    <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+      <View style={s.doctorSearch}><Ionicons name="search" size={21} color={colors.muted}/><TextInput style={s.doctorSearchInput} placeholder="Терапевт, кардиолог…" value={query} onChangeText={setQuery}/></View>
+      <View style={s.doctorGrid}>{doctors.map((doctor) =>
+        <Pressable key={doctor.id} accessibilityRole="button" accessibilityLabel={`Открыть врача ${doctor.full_name}`} onPress={() => { setSelectedDoctor(doctor); setAction("profile"); }} style={({ pressed }) => [s.doctorDirectoryCard, pressed && s.pressablePressed]}>
+          <AvatarView user={doctor} size={48}/><View style={{ flex: 1, minWidth: 0 }}><Text numberOfLines={1} style={s.doctorDirectoryName}>{doctor.full_name}</Text><Text style={s.specialtyLine}>{doctor.specialization}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/>
+        </Pressable>)}</View>
+      {!doctors.length && <Empty icon="medkit-outline" title="Специалисты не найдены" text="Попробуйте другую специальность."/>}
+    </ScrollView>
+    <Modal visible={!!selectedDoctor} animationType="slide" onRequestClose={close}>
+      <SafeAreaView style={s.fullScreenModal}>
+        <View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={action === "profile" ? close : () => setAction("profile")}><Ionicons name="arrow-back" size={24}/></Pressable><Text style={s.fullScreenTitle}>{action === "profile" ? "Профиль врача" : action === "appointment" ? "Запись на приём" : "Запрос консультации"}</Text><View style={s.headerSpacer}/></View>
+        <ScrollView contentContainerStyle={s.fullScreenBody} keyboardShouldPersistTaps="handled">
+          <View style={s.doctorProfileHero}><AvatarView user={selectedDoctor!} size={84}/><Text style={s.cardTitle}>{selectedDoctor?.full_name}</Text><Text style={s.specialtyLine}>{selectedDoctor?.specialization}</Text>{selectedDoctor?.verified && <Text style={s.verifiedText}>✓ Профиль подтверждён</Text>}</View>
+          {action === "profile" ? <>
+            <View style={s.patientRecord}><Text style={s.replyLabel}>О враче</Text><Text style={s.body}>Специальность: {selectedDoctor?.specialization || "не указана"}</Text><Text style={s.body}>Лицензия: {selectedDoctor?.license_number || "не указана"}</Text><Text style={s.body}>Выезд на дом: {selectedDoctor?.home_visits ? "доступен" : "не заявлен"}</Text></View>
+            <View style={s.doctorProfileActions}><Button label="Запросить консультацию" icon="chatbubble-outline" onPress={() => setAction("consultation")}/><Button label="Записаться на приём" icon="calendar-outline" kind="ghost" onPress={() => setAction("appointment")}/>{selectedDoctor?.home_visits && <Button label="Вызвать на дом" icon="home-outline" kind="ghost" disabled={busy} onPress={() => void request("home_visit")}/>}</View>
+          </> : action === "consultation" ? <>
+            <Text style={s.label}>Выберите анализ</Text><View style={s.choiceWrap}>{analyses.map((analysis) => <Choice key={analysis.id} active={analysisID === analysis.id} label={`${analysis.title} · ${date(analysis.created_at)}`} onPress={() => setAnalysisID(analysis.id)}/>)}</View>
+            {!analyses.length && <Text style={s.cardHint}>Сначала загрузите анализ.</Text>}
+            <Field label="Вопрос врачу" multiline value={question} onChangeText={setQuestion}/><Button label={busy ? "Отправляем…" : "Отправить запрос"} disabled={busy || !analysisID} onPress={() => void request("consultation")}/>
+          </> : <>
+            {slotsBusy ? <ActivityIndicator color={colors.brand}/> : slotsError ? <Text style={s.error}>{slotsError}</Text> : availableSlots.length ? <View style={s.slotGroups}>{availableSlots.map((slot) => <Choice key={slot.id} active={appointmentAt === slot.start_at} label={new Date(slot.start_at).toLocaleString("ru-RU", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} onPress={() => setAppointmentAt(slot.start_at)}/>)}</View> : <Empty icon="calendar-outline" title="Будущих часов пока нет" text="Врач ещё не открыл новые ячейки."/>}
+            <Field label="Комментарий (необязательно)" multiline value={question} onChangeText={setQuestion}/><Button label={busy ? "Записываем…" : "Подтвердить запись"} disabled={busy || !appointmentAt} onPress={() => void request("appointment", appointmentAt)}/>
+          </>}
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  </>;
 }
 
 function Profile({ user, onUpdated, onLogout }: { user: User; onUpdated: (u: User) => void; onLogout: () => void }) {
@@ -2532,7 +2587,7 @@ const s = StyleSheet.create({
   noteCard: { backgroundColor: colors.white, borderRadius: 18, padding: 16, borderLeftWidth: 4, borderLeftColor: colors.aqua, ...shadow },
   aiChatCard: { minHeight: 92, padding: 15, borderRadius: 20, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, flexDirection: "row", alignItems: "center", gap: 13, ...shadow },
   aiChatIcon: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.violet },
-  chatPage: { flex: 1, backgroundColor: colors.paper, ...Platform.select({web:{position:"fixed",top:"-100vh",right:0,bottom:"100vh",left:0,zIndex:9999} as any,default:{position:"absolute",top:0,right:0,bottom:0,left:0}}) },
+  chatPage: { flex: 1, backgroundColor: colors.paper },
   chatHeader: { minHeight: 68, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.line },
   chatTitleInput: { flex: 1, fontSize: 17, fontWeight: "800", color: colors.ink, padding: 10 },
   messages: { padding: 16, gap: 10, maxWidth: 900, width: "100%", alignSelf: "center" },
@@ -2544,7 +2599,7 @@ const s = StyleSheet.create({
   chatInput: { flex: 1, maxHeight: 120, minHeight: 48, borderRadius: 17, backgroundColor: colors.paper, paddingHorizontal: 15, paddingVertical: 12, color: colors.ink },
   sendButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.violet, alignItems: "center", justifyContent: "center" },
   guidePublished: { color: colors.aqua, fontSize: 10, fontWeight: "800", marginTop: 5 },
-  guideReader: { flex: 1, backgroundColor: colors.paper, ...Platform.select({web:{position:"fixed",top:"-100vh",right:0,bottom:"100vh",left:0,zIndex:9999} as any,default:{position:"absolute",top:0,right:0,bottom:0,left:0}}) },
+  guideReader: { flex: 1, backgroundColor: colors.paper },
   guideBody: { width: "100%", maxWidth: 900, alignSelf: "center", padding: 20, paddingBottom: 80, gap: 18 },
   guideContents: { borderRadius: 22, padding: 18, backgroundColor: colors.white, gap: 8, ...shadow },
   contentsRow: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 11, borderBottomWidth: 1, borderBottomColor: colors.line },
@@ -2554,7 +2609,8 @@ const s = StyleSheet.create({
   guideSectionTitle: { color: colors.ink, fontSize: 21, lineHeight: 27, fontWeight: "900", marginBottom: 14 },
   guideText: { color: colors.ink, fontSize: 15, lineHeight: 24 },
   backToContents: { minHeight: 44, marginTop: 18, flexDirection: "row", gap: 7, alignItems: "center", alignSelf: "flex-start" },
-  fullScreenModal: { flex: 1, backgroundColor: colors.paper, ...Platform.select({web:{position:"fixed",top:"-100vh",right:0,bottom:"100vh",left:0,zIndex:9999} as any,default:{position:"absolute",top:0,right:0,bottom:0,left:0}}) },
+  webModalRoot: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9999, backgroundColor: colors.paper } as any,
+  fullScreenModal: { flex: 1, backgroundColor: colors.paper },
   fullScreenInner: { flex: 1, width: "100%", maxWidth: 1100, alignSelf: "center", backgroundColor: colors.paper },
   fullScreenHeader: { minHeight: 62, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.line },
   fullScreenTitle: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "800", color: colors.ink },
@@ -2572,6 +2628,7 @@ const s = StyleSheet.create({
   nutritionMediaCard: { minHeight: 210, borderRadius: 24, overflow: "hidden", backgroundColor: colors.ink },
   nutritionImage: { width: "100%", height: 230, resizeMode: "cover" },
   doctorProfileHero: { alignItems: "center", gap: 7, paddingVertical: 18 },
+  doctorProfileActions: { gap: 10 },
   verifiedText: { color: colors.aqua, fontWeight: "800", fontSize: 12 },
   choiceWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   slotGroups: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
