@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -25,20 +25,20 @@ import * as Sharing from "expo-sharing";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { LinearGradient } from "expo-linear-gradient";
 import { api, API_URL, restoreToken, setToken } from "./src/api";
-import { ActivitySurvey, Analysis, ClinicalAssistResult, Consultation, NutritionSurvey, Role, User } from "./src/types";
+import { ActivitySurvey, AIChat, Analysis, Consultation, Guide, NutritionSurvey, PatientNote, Role, ScheduleSlot, User } from "./src/types";
 import { colors, shadow } from "./src/theme";
 
-type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "consilium" | "guidelines" | "profile";
+type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.3.0";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.4.0";
 const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   home: "home-outline",
   analyses: "flask-outline",
   patients: "people-outline",
   consultations: "chatbubbles-outline",
   doctors: "medkit-outline",
-  consilium: "git-network-outline",
-  guidelines: "library-outline",
+  ai: "sparkles-outline",
+  guides: "library-outline",
   profile: "person-outline",
 };
 const labels: Record<Tab, string> = {
@@ -47,12 +47,12 @@ const labels: Record<Tab, string> = {
   patients: "Пациенты",
   consultations: "Консультации",
   doctors: "Врачи",
-  consilium: "Консилиум",
-  guidelines: "Клин. рекомендации",
+  ai: "AI",
+  guides: "Guides",
   profile: "Профиль",
 };
 const tabsFor = (role: Role): Tab[] => role === "doctor"
-  ? ["home", "patients", "consultations", "consilium", "guidelines", "profile"]
+  ? ["home", "patients", "ai", "guides", "profile"]
   : ["home", "analyses", "consultations", "doctors", "profile"];
 
 export default function App() {
@@ -155,10 +155,10 @@ export default function App() {
         analyses={analyses}
         onRefresh={() => refresh()}
       />
-    ) : tab === "consilium" ? (
-      <Consilium />
-    ) : tab === "guidelines" ? (
-      <Guidelines />
+    ) : tab === "ai" ? (
+      <AIWorkspace />
+    ) : tab === "guides" ? (
+      <Guides />
     ) : (
       <Profile
         user={user}
@@ -438,20 +438,7 @@ function Home({
   const age = user.patient_profile?.age || 35;
   const ageTone = age < 40 ? "young" : age < 65 ? "middle" : "senior";
   if (user.role === "doctor") {
-    return (
-      <ScrollView contentContainerStyle={[s.scroll, compact && s.scrollCompact]}>
-        <LinearGradient colors={["#17214B", "#3C3A86", "#147D83"]} style={[s.welcome, compact && s.welcomeCompact]}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.welcomeOver}>РАБОЧЕЕ ПРОСТРАНСТВО ВРАЧА</Text>
-            <Text style={[s.welcomeTitle, compact && s.welcomeTitleCompact]}>Здравствуйте, {firstName(user.full_name)}</Text>
-            <Text style={[s.welcomeText, compact && s.welcomeTextCompact]}>Пациенты, запросы и открытые исследования собраны в одном пространстве.</Text>
-          </View>
-        </LinearGradient>
-        <Section title="Последние исследования" action="Все анализы" onAction={() => onTab("analyses")}>
-          {analyses.length ? analyses.slice(0, 3).map((analysis) => <AnalysisCard key={analysis.id} item={analysis} onPress={() => onOpen(analysis)} />) : <Empty icon="people-outline" title="Нет открытых исследований" text="Они появятся после запроса пациента." />}
-        </Section>
-      </ScrollView>
-    );
+    return <DoctorSchedule user={user} compact={compact} />;
   }
   return (
     <ScrollView contentContainerStyle={[s.patientHome, compact && s.patientHomeCompact]}>
@@ -811,72 +798,47 @@ function Consultations({
   );
 }
 
+function weekStart(seed = new Date()) { const d = new Date(seed); const day = (d.getDay()+6)%7; d.setHours(0,0,0,0); d.setDate(d.getDate()-day); return d; }
+function addDays(seed: Date, days: number) { const d=new Date(seed); d.setDate(d.getDate()+days); return d; }
+function slotKey(value: Date | string) { const d=new Date(value); d.setSeconds(0,0); return d.toISOString(); }
+const weekDays = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
+
+function DoctorSchedule({ user, compact }: { user: User; compact: boolean }) {
+  const [week,setWeek]=useState(weekStart()); const [slots,setSlots]=useState<ScheduleSlot[]>([]); const [selected,setSelected]=useState<Set<string>>(new Set()); const [edit,setEdit]=useState(false); const [busy,setBusy]=useState(false);
+  const from=week.toISOString(), to=addDays(week,7).toISOString();
+  const load=async()=>{try{const list=await api.schedule(user.id,from,to);setSlots(list);setSelected(new Set(list.filter(x=>x.status==="available").map(x=>slotKey(x.start_at))))}catch(e){Alert.alert("Расписание недоступно",e instanceof Error?e.message:"Ошибка")}};
+  useEffect(()=>{void load()},[from,to]);
+  const rows=Array.from({length:24},(_,i)=>{const minutes=8*60+i*30;return {h:Math.floor(minutes/60),m:minutes%60}});
+  function toggle(d:number,h:number,m:number){if(!edit)return;const value=addDays(week,d);value.setHours(h,m,0,0);const key=slotKey(value);if(slots.some(x=>slotKey(x.start_at)===key&&x.status==="booked"))return;setSelected(current=>{const next=new Set(current);next.has(key)?next.delete(key):next.add(key);return next})}
+  async function save(){setBusy(true);try{await api.saveSchedule(from,to,[...selected]);setEdit(false);await load()}catch(e){Alert.alert("Не удалось сохранить",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
+  return <View style={s.schedulePage}><LinearGradient colors={["#17214B","#3C3A86","#147D83"]} style={[s.doctorWelcome,compact&&s.doctorWelcomeCompact]}><View><Text style={s.welcomeOver}>РАСПИСАНИЕ ВРАЧА</Text><Text style={s.doctorWelcomeTitle}>Здравствуйте, {firstName(user.full_name)}</Text></View><Pressable style={s.scheduleEdit} onPress={()=>edit?void save():setEdit(true)}><Ionicons name={edit?"checkmark":"create-outline"} size={19} color={colors.white}/><Text style={s.scheduleEditText}>{busy?"Сохраняем…":edit?"Готово":"Изменить"}</Text></Pressable></LinearGradient>
+    <View style={s.weekToolbar}><Pressable style={s.iconButton} onPress={()=>setWeek(addDays(week,-7))}><Ionicons name="chevron-back" size={22}/></Pressable><Pressable onPress={()=>setWeek(weekStart())}><Text style={s.weekTitle}>{week.toLocaleDateString("ru-RU",{day:"numeric",month:"short"})} — {addDays(week,6).toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}</Text></Pressable><Pressable style={s.iconButton} onPress={()=>setWeek(addDays(week,7))}><Ionicons name="chevron-forward" size={22}/></Pressable></View>
+    {edit&&<View style={s.editHint}><Ionicons name="information-circle-outline" size={20} color={colors.violet}/><Text style={s.aiDisclaimer}>Нажимайте на свободные ячейки, чтобы открыть или закрыть самостоятельную запись пациентов.</Text></View>}
+    <ScrollView horizontal style={s.calendarHorizontal} contentContainerStyle={{minWidth:760}}><View><View style={s.calendarHeader}><View style={s.timeColumn}/>{weekDays.map((label,i)=><View key={label} style={s.dayHeader}><Text style={s.dayName}>{label}</Text><Text style={s.dayNumber}>{addDays(week,i).getDate()}</Text></View>)}</View><ScrollView style={s.calendarVertical} nestedScrollEnabled>{rows.map(({h,m})=><View key={`${h}-${m}`} style={s.calendarRow}><View style={s.timeColumn}><Text style={s.timeText}>{String(h).padStart(2,"0")}:{String(m).padStart(2,"0")}</Text></View>{weekDays.map((_,d)=>{const value=addDays(week,d);value.setHours(h,m,0,0);const key=slotKey(value);const booked=slots.find(x=>slotKey(x.start_at)===key&&x.status==="booked");const available=selected.has(key);return <Pressable key={d} onPress={()=>toggle(d,h,m)} style={[s.calendarCell,available&&s.availableCell,booked&&s.bookedCell]}><Text numberOfLines={2} style={[s.cellText,(available||booked)&&{color:colors.white}]}>{booked?(booked.patient_name||"Пациент"):available?"Доступно":""}</Text></Pressable>})}</View>)}</ScrollView></View></ScrollView>
+  </View>
+}
+
+function startDictation(setValue: React.Dispatch<React.SetStateAction<string>>, setListening: (v:boolean)=>void) { if(Platform.OS!=="web"){Alert.alert("Диктовка","Нажмите микрофон на системной клавиатуре.");return} const w=window as any;const R=w.SpeechRecognition||w.webkitSpeechRecognition;if(!R){Alert.alert("Диктовка недоступна","Используйте микрофон клавиатуры.");return}const r=new R();r.lang="ru-RU";r.onstart=()=>setListening(true);r.onend=()=>setListening(false);r.onerror=()=>setListening(false);r.onresult=(e:any)=>setValue(v=>`${v}${v?" ":""}${e.results?.[0]?.[0]?.transcript||""}`);r.start() }
+
 function DoctorPatients({ patientsAnalyses, onOpen }: { patientsAnalyses: Analysis[]; onOpen: (a: Analysis) => void }) {
-  const [patients, setPatients] = useState<User[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<User | null>(null);
-  useEffect(() => { api.patients().then(setPatients).catch(() => setPatients([])); }, []);
-  const patientAnalyses = selectedPatient ? patientsAnalyses.filter((a) => a.owner_id === selectedPatient.id) : [];
-  return <ScrollView contentContainerStyle={s.scroll}>
-    {!selectedPatient ? <>
-      <Text style={s.sectionIntro}>Здесь отображаются только пациенты, которые сами запросили услугу и открыли врачу доступ к анализу.</Text>
-      <View style={s.doctorGrid}>{patients.map((patient) => <Pressable key={patient.id} style={s.doctorDirectoryCard} onPress={() => setSelectedPatient(patient)}><View style={s.doctorAvatar}><Text style={s.avatarText}>{initials(patient.full_name)}</Text></View><View style={{ flex: 1 }}><Text style={s.doctorDirectoryName}>{patient.full_name}</Text><Text style={s.specialtyLine}>{patient.patient_profile ? `${patient.patient_profile.age} лет · ИМТ ${patient.patient_profile.bmi}` : "Профиль не заполнен"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted} /></Pressable>)}</View>
-      {!patients.length && <Empty icon="people-outline" title="Запросов пациентов пока нет" text="Пациент появится здесь после запроса консультации, записи или вызова на дом." />}
-    </> : <>
-      <Pressable style={s.backLink} onPress={() => setSelectedPatient(null)}><Ionicons name="arrow-back" size={18} color={colors.brand} /><Text style={s.link}>Все пациенты</Text></Pressable>
-      <View style={s.patientRecord}><Text style={s.eyebrow}>КАРТА ПАЦИЕНТА</Text><Text style={s.cardTitle}>{selectedPatient.full_name}</Text>{selectedPatient.patient_profile && <Text style={s.analysisMeta}>{selectedPatient.patient_profile.age} лет · {selectedPatient.patient_profile.height_cm} см · {selectedPatient.patient_profile.weight_kg} кг · ИМТ {selectedPatient.patient_profile.bmi}</Text>}</View>
-      <Text style={s.surveyTitle}>Доступные исследования</Text>
-      <View style={s.compactCardGrid}>{patientAnalyses.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} onPress={() => onOpen(analysis)} />)}</View>
-      {!patientAnalyses.length && <Empty icon="flask-outline" title="Нет доступных исследований" text="Пациент ещё не открыл анализ этому врачу." />}
-    </>}
-  </ScrollView>;
+  const [patients,setPatients]=useState<User[]>([]);const [selectedPatient,setSelectedPatient]=useState<User|null>(null);const [notes,setNotes]=useState<PatientNote[]>([]);const [note,setNote]=useState("");const [busy,setBusy]=useState(false);const [listening,setListening]=useState(false);
+  useEffect(()=>{api.patients().then(setPatients).catch(()=>setPatients([]))},[]);useEffect(()=>{if(selectedPatient)api.patientNotes(selectedPatient.id).then(setNotes).catch(()=>setNotes([]))},[selectedPatient]);
+  const patientAnalyses=selectedPatient?patientsAnalyses.filter(a=>a.owner_id===selectedPatient.id):[];
+  async function save(){if(!selectedPatient||!note.trim())return;setBusy(true);try{await api.addPatientNote(selectedPatient.id,note.trim());setNote("");setNotes(await api.patientNotes(selectedPatient.id))}catch(e){Alert.alert("Не удалось сохранить",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
+  return <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">{!selectedPatient?<><Text style={s.sectionIntro}>Пациенты, которые записались или запросили услугу.</Text><View style={s.doctorGrid}>{patients.map(p=><Pressable key={p.id} style={s.doctorDirectoryCard} onPress={()=>setSelectedPatient(p)}><View style={s.doctorAvatar}><Text style={s.avatarText}>{initials(p.full_name)}</Text></View><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{p.full_name}</Text><Text style={s.specialtyLine}>{p.patient_profile?`${p.patient_profile.age} лет · ИМТ ${p.patient_profile.bmi}`:"Профиль не заполнен"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>)}</View>{!patients.length&&<Empty icon="people-outline" title="Пациентов пока нет" text="Пациент появится после записи или запроса услуги."/>}</>:<><Pressable style={s.backLink} onPress={()=>setSelectedPatient(null)}><Ionicons name="arrow-back" size={18} color={colors.brand}/><Text style={s.link}>Все пациенты</Text></Pressable><View style={s.patientRecord}><Text style={s.eyebrow}>КАРТА ПАЦИЕНТА</Text><Text style={s.cardTitle}>{selectedPatient.full_name}</Text>{selectedPatient.patient_profile&&<Text style={s.analysisMeta}>{selectedPatient.patient_profile.age} лет · {selectedPatient.patient_profile.height_cm} см · {selectedPatient.patient_profile.weight_kg} кг · ИМТ {selectedPatient.patient_profile.bmi}</Text>}</View><View style={s.noteComposer}><Text style={s.surveyTitle}>Заключение врача</Text><TextInput multiline style={[s.input,s.noteInput]} placeholder="Заключение, рекомендации и дальнейшая тактика…" value={note} onChangeText={setNote}/><View style={s.complaintActions}><Pressable style={[s.micButton,listening&&s.micButtonActive]} onPress={()=>startDictation(setNote,setListening)}><Ionicons name={listening?"radio":"mic-outline"} size={21} color={listening?colors.white:colors.violet}/><Text style={[s.micText,listening&&{color:colors.white}]}>{listening?"Слушаю…":"Продиктовать"}</Text></Pressable><Button compact disabled={busy||!note.trim()} label={busy?"Сохраняем…":"Сохранить"} onPress={()=>void save()}/></View></View>{notes.map(n=><View key={n.id} style={s.noteCard}><View style={s.rowBetween}><Text style={s.replyLabel}>Заключение</Text><Text style={s.analysisMeta}>{date(n.created_at)}</Text></View><Text style={s.body}>{n.text}</Text></View>)}<Text style={s.surveyTitle}>Доступные исследования</Text><View style={s.compactCardGrid}>{patientAnalyses.map(a=><AnalysisCard key={a.id} item={a} onPress={()=>onOpen(a)}/>)}</View>{!patientAnalyses.length&&<Empty icon="flask-outline" title="Нет доступных исследований" text="Пациент ещё не открыл анализ этому врачу."/>}</>}</ScrollView>
 }
 
-function Consilium() {
-  const [patients, setPatients] = useState<User[]>([]);
-  const [patientID, setPatientID] = useState("");
-  const [objective, setObjective] = useState("");
-  const [clinical, setClinical] = useState("");
-  const [result, setResult] = useState<ClinicalAssistResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { api.patients().then((list) => { setPatients(list); setPatientID(list[0]?.id || ""); }).catch(() => setPatients([])); }, []);
-  async function ask() {
-    if (!patientID || (!objective.trim() && !clinical.trim())) { Alert.alert("Недостаточно данных", "Выберите пациента и внесите объективные или клинические данные."); return; }
-    setBusy(true); setResult(null);
-    try { setResult(await api.clinicalAssist({ patientID, objective, clinical })); }
-    catch (e) { Alert.alert("Консилиум недоступен", e instanceof Error ? e.message : "Ошибка"); }
-    finally { setBusy(false); }
-  }
-  return <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
-    <View style={s.clinicalNotice}><Ionicons name="shield-checkmark-outline" size={24} color={colors.brand} /><Text style={s.aiDisclaimer}>Инструмент поддержки решения для врача. Он не назначает лечение и не заменяет проверку действующих клинических рекомендаций.</Text></View>
-    <Text style={s.surveyTitle}>Пациент</Text><ScrollView horizontal contentContainerStyle={s.markerPicker} showsHorizontalScrollIndicator={false}>{patients.map((p) => <Choice key={p.id} label={p.full_name} active={patientID === p.id} onPress={() => setPatientID(p.id)} />)}</ScrollView>
-    <Field label="Объективные данные" multiline value={objective} onChangeText={setObjective} placeholder="АД, ЧСС, температура, осмотр…" />
-    <Field label="Клинические данные и вопрос" multiline value={clinical} onChangeText={setClinical} placeholder="Жалобы, анамнез, сопутствующие состояния, что требуется оценить…" />
-    <Button label={busy ? "Анализируем…" : "Получить поддержку консилиума"} disabled={busy || !patients.length} onPress={() => void ask()} />
-    {result && <View style={s.consiliumResult}><Text style={s.reviewTitle}>Клиническая оценка</Text><Text style={s.analysisSummary}>{result.assessment}</Text><ClinicalList title="Красные флаги" values={result.red_flags} alert /><ClinicalList title="Что уточнить и проверить" values={result.suggested_checks} /><ClinicalList title="Возможная тактика" values={result.tactics} /><ClinicalList title="Источники для сверки" values={result.guideline_refs} /><Text style={s.aiDisclaimer}>{result.limitations}</Text></View>}
-  </ScrollView>;
+function AIWorkspace(){const [chats,setChats]=useState<AIChat[]>([]);const [active,setActive]=useState<AIChat|null>(null);const [message,setMessage]=useState("");const [title,setTitle]=useState("");const [busy,setBusy]=useState(false);const [listening,setListening]=useState(false);const load=()=>api.aiChats().then(setChats).catch(()=>setChats([]));useEffect(()=>{void load()},[]);async function open(chat:AIChat){setActive(await api.aiChat(chat.id));setTitle(chat.title)}async function create(){const c=await api.createAIChat();setActive(c);setTitle(c.title);void load()}async function send(){if(!active||!message.trim())return;const text=message.trim();setMessage("");setBusy(true);try{await api.aiMessage(active.id,text);setActive(await api.aiChat(active.id));void load()}catch(e){setMessage(text);Alert.alert("AI недоступен",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}async function rename(){if(active&&title.trim()){await api.renameAIChat(active.id,title.trim());setActive({...active,title:title.trim()});void load()}}async function remove(){if(!active)return;await api.deleteAIChat(active.id);setActive(null);void load()}
+  return <><ScrollView contentContainerStyle={s.scroll}><View style={s.rowBetween}><View><Text style={s.sectionTitle}>Беседы с AI</Text><Text style={s.sectionIntro}>Клиническое рассуждение и подготовка вопросов. Решение всегда принимает врач.</Text></View><Button compact icon="add" label="Новая консультация" onPress={()=>void create()}/></View>{chats.map(c=><Pressable key={c.id} style={s.aiChatCard} onPress={()=>void open(c)}><View style={s.aiChatIcon}><Ionicons name="sparkles" size={22} color={colors.white}/></View><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{c.title}</Text><Text style={s.analysisMeta}>{new Date(c.updated_at).toLocaleString("ru-RU")}</Text><Text numberOfLines={2} style={s.analysisSummary}>{c.messages?.[0]?.content||"Новая беседа"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>)}</ScrollView><Modal visible={!!active} animationType="slide" onRequestClose={()=>setActive(null)}><SafeAreaView style={s.chatPage}><View style={s.chatHeader}><Pressable style={s.iconButton} onPress={()=>setActive(null)}><Ionicons name="arrow-back" size={24}/></Pressable><TextInput style={s.chatTitleInput} value={title} onChangeText={setTitle} onBlur={()=>void rename()}/><Pressable style={s.iconButton} onPress={()=>void remove()}><Ionicons name="trash-outline" size={22} color={colors.coral}/></Pressable></View><ScrollView style={{flex:1}} contentContainerStyle={s.messages}>{active?.messages.map((m,i)=><View key={i} style={[s.messageBubble,m.role==="user"?s.userBubble:s.assistantBubble]}><Text style={[s.body,m.role==="user"&&{color:colors.white}]}>{m.content}</Text><Text style={[s.messageTime,m.role==="user"&&{color:"#FFFFFFAA"}]}>{new Date(m.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}{busy&&<View style={[s.messageBubble,s.assistantBubble]}><ActivityIndicator color={colors.violet}/></View>}</ScrollView><View style={s.chatComposer}><Pressable style={s.iconButton} onPress={()=>startDictation(setMessage,setListening)}><Ionicons name={listening?"radio":"mic-outline"} size={23} color={colors.violet}/></Pressable><TextInput multiline style={s.chatInput} placeholder="Сообщение AI…" value={message} onChangeText={setMessage}/><Pressable disabled={busy||!message.trim()} style={s.sendButton} onPress={()=>void send()}><Ionicons name="arrow-up" size={22} color={colors.white}/></Pressable></View></SafeAreaView></Modal></>
 }
 
-function ClinicalList({ title, values, alert = false }: { title: string; values: string[]; alert?: boolean }) {
-  if (!values?.length) return null;
-  return <View style={s.clinicalBlock}><Text style={[s.surveyTitle, alert && { color: colors.red }]}>{title}</Text>{values.map((value, index) => <Text key={`${title}-${index}`} style={s.analysisSummary}>• {value}</Text>)}</View>;
-}
-
-const guidelineSources = [
-  { title: "Рубрикатор Минздрава России", subtitle: "Российские клинические рекомендации", url: "https://cr.minzdrav.gov.ru/", icon: "flag-outline" as const },
-  { title: "ESC Guidelines", subtitle: "Кардиология · европейские рекомендации", url: "https://www.escardio.org/guidelines", icon: "heart-outline" as const },
-  { title: "ACC/AHA Guidelines", subtitle: "Кардиология · американские рекомендации", url: "https://www.acc.org/Guidelines", icon: "pulse-outline" as const },
-  { title: "NICE Guidance", subtitle: "Терапия, эндокринология, нефрология и другие разделы", url: "https://www.nice.org.uk/guidance/conditions-and-diseases", icon: "library-outline" as const },
-];
-
-function Guidelines() {
-  const [query, setQuery] = useState("");
-  const filtered = guidelineSources.filter((item) => `${item.title} ${item.subtitle}`.toLowerCase().includes(query.toLowerCase()));
-  return <ScrollView contentContainerStyle={s.scroll}>
-    <View style={s.doctorSearch}><Ionicons name="search" size={21} color={colors.muted} /><TextInput style={s.doctorSearchInput} value={query} onChangeText={setQuery} placeholder="Кардиология, терапия, нефрология…" /></View>
-    <Text style={s.sectionIntro}>Приложение открывает официальный каталог, где врач выбирает актуальную редакцию и нужный раздел. Тексты рекомендаций не копируются и не изменяются приложением.</Text>
-    <View style={s.guidelineGrid}>{filtered.map((item) => <Pressable key={item.title} style={s.guidelineCard} onPress={() => void Linking.openURL(item.url)}><View style={s.wellnessIcon}><Ionicons name={item.icon} size={24} color={colors.brand} /></View><View style={{ flex: 1 }}><Text style={s.doctorDirectoryName}>{item.title}</Text><Text style={s.analysisMeta}>{item.subtitle}</Text></View><Ionicons name="open-outline" size={20} color={colors.brand} /></Pressable>)}</View>
-    <View style={s.clinicalNotice}><Ionicons name="refresh-outline" size={22} color={colors.amber} /><Text style={s.aiDisclaimer}>Перед клиническим решением проверяйте дату, статус и применимость документа на официальном сайте.</Text></View>
-  </ScrollView>;
+function Guides(){
+  const [query,setQuery]=useState("");const [catalog,setCatalog]=useState<Guide[]>([]);const [active,setActive]=useState<Guide|null>(null);const [synced,setSynced]=useState("");const [busy,setBusy]=useState(false);const reader=useRef<ScrollView>(null);const positions=useRef<Record<string,number>>({});
+  const load=async(sync=false)=>{setBusy(true);try{const r=sync?await api.syncGuides():await api.guides();setCatalog(r.items);setSynced(r.synced_at)}catch(e){Alert.alert("Guides недоступны",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}};useEffect(()=>{void load()},[]);
+  async function open(item:Guide){setBusy(true);try{setActive(await api.guide(item.id));positions.current={}}catch(e){Alert.alert("Документ недоступен",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
+  const filtered=catalog.filter(g=>`${g.title} ${g.code} ${g.category} ${g.developers?.join(" ")}`.toLowerCase().includes(query.toLowerCase())).slice(0,120);
+  return <><ScrollView contentContainerStyle={s.scroll}><View style={s.rowBetween}><View style={{flex:1}}><Text style={s.sectionIntro}>Официальный каталог клинических рекомендаций Минздрава России.</Text>{synced?<Text style={s.analysisMeta}>Синхронизировано: {new Date(synced).toLocaleString("ru-RU")}</Text>:null}</View><Pressable style={s.iconButton} onPress={()=>void load(true)}>{busy?<ActivityIndicator/>:<Ionicons name="refresh" size={21} color={colors.brand}/>}</Pressable></View><View style={s.doctorSearch}><Ionicons name="search" size={21} color={colors.muted}/><TextInput style={s.doctorSearchInput} value={query} onChangeText={setQuery} placeholder="Название, МКБ или раздел…"/></View><View style={s.guidelineGrid}>{filtered.map(g=><Pressable key={g.id} style={s.guidelineCard} onPress={()=>void open(g)}><View style={s.wellnessIcon}><Ionicons name="book-outline" size={23} color={colors.brand}/></View><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{g.title}</Text><Text style={s.analysisMeta}>{[g.code,g.category,g.status].filter(Boolean).join(" · ")}</Text>{g.published_at?<Text style={s.guidePublished}>Опубликовано {date(g.published_at)}</Text>:null}</View><Ionicons name="chevron-forward" size={20} color={colors.brand}/></Pressable>)}</View><View style={s.clinicalNotice}><Ionicons name="shield-checkmark-outline" size={22} color={colors.amber}/><Text style={s.aiDisclaimer}>Перед решением сверяйте редакцию, статус и применимость документа с официальным оригиналом.</Text></View></ScrollView>
+  <Modal visible={!!active} animationType="slide" onRequestClose={()=>setActive(null)}><SafeAreaView style={s.guideReader}><View style={s.chatHeader}><Pressable style={s.iconButton} onPress={()=>setActive(null)}><Ionicons name="arrow-back" size={24}/></Pressable><View style={{flex:1}}><Text numberOfLines={1} style={s.doctorDirectoryName}>{active?.title}</Text><Text style={s.analysisMeta}>{[active?.code,active?.status].filter(Boolean).join(" · ")}</Text></View><Pressable style={s.iconButton} onPress={()=>active&&void Linking.openURL(active.source_url)}><Ionicons name="open-outline" size={22} color={colors.brand}/></Pressable></View><ScrollView ref={reader} contentContainerStyle={s.guideBody}><View style={s.guideContents}><Text style={s.cardTitle}>Содержание</Text>{active?.sections?.map((section,index)=><Pressable key={section.id} style={s.contentsRow} onPress={()=>reader.current?.scrollTo({y:positions.current[section.id]||0,animated:true})}><Text style={s.contentsNumber}>{index+1}</Text><Text style={s.contentsTitle}>{section.title}</Text></Pressable>)}</View>{active?.sections?.map(section=><View key={section.id} onLayout={e=>{positions.current[section.id]=e.nativeEvent.layout.y}} style={s.guideSection}><Text style={s.guideSectionTitle}>{section.title}</Text><Text selectable style={s.guideText}>{section.content}</Text><Pressable style={s.backToContents} onPress={()=>reader.current?.scrollTo({y:0,animated:true})}><Ionicons name="arrow-up" size={16} color={colors.brand}/><Text style={s.link}>К содержанию</Text></Pressable></View>)}</ScrollView></SafeAreaView></Modal></>
 }
 
 function DoctorsScreen({ user, analyses, onRefresh }: { user: User; analyses: Analysis[]; onRefresh: () => void }) {
@@ -885,12 +847,17 @@ function DoctorsScreen({ user, analyses, onRefresh }: { user: User; analyses: An
   const [selectedDoctor, setSelectedDoctor] = useState<User | null>(null);
   const [analysisID, setAnalysisID] = useState(analyses[0]?.id || "");
   const [question, setQuestion] = useState("Прошу прокомментировать результаты и дальнейшие действия.");
+  const [availableSlots, setAvailableSlots] = useState<ScheduleSlot[]>([]);
+  const [appointmentAt, setAppointmentAt] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (user.role === "patient") api.doctors(query).then(setDoctors).catch(() => setDoctors([])); }, [query, user.role]);
+  useEffect(() => { if (!selectedDoctor) { setAvailableSlots([]); return; } const from=new Date(); const to=addDays(from,21); api.schedule(selectedDoctor.id,from.toISOString(),to.toISOString()).then(list=>setAvailableSlots(list.filter(x=>x.status==="available"&&new Date(x.start_at)>from))).catch(()=>setAvailableSlots([])); }, [selectedDoctor]);
   async function request(serviceType: "consultation" | "appointment" | "home_visit", appointmentAt?: string) {
-    if (!selectedDoctor || !analysisID) { Alert.alert("Выберите анализ", "Врачу необходимо открыть доступ хотя бы к одному исследованию."); return; }
+    if (!selectedDoctor) return;
+    if (serviceType === "consultation" && !analysisID) { Alert.alert("Выберите анализ", "Для консультации откройте врачу хотя бы одно исследование."); return; }
+    if (serviceType === "appointment" && !appointmentAt) { Alert.alert("Выберите время", "Выберите свободную ячейку в расписании врача."); return; }
     setBusy(true);
-    try { await api.requestDoctor({ analysisID, doctorID: selectedDoctor.id, question, serviceType, appointmentAt }); setSelectedDoctor(null); onRefresh(); Alert.alert("Запрос отправлен", "Он появился во вкладке консультаций."); }
+    try { await api.requestDoctor({ analysisID: analysisID || undefined, doctorID: selectedDoctor.id, question, serviceType, appointmentAt }); setSelectedDoctor(null); onRefresh(); Alert.alert(serviceType === "appointment" ? "Вы записаны" : "Запрос отправлен", serviceType === "appointment" ? "Время закреплено в расписании врача." : "Врач увидит запрос в карте пациента."); }
     catch (e) { Alert.alert("Не удалось отправить", e instanceof Error ? e.message : "Ошибка"); }
     finally { setBusy(false); }
   }
@@ -898,9 +865,9 @@ function DoctorsScreen({ user, analyses, onRefresh }: { user: User; analyses: An
   return <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
     <View style={s.doctorSearch}><Ionicons name="search" size={21} color={colors.muted} /><TextInput style={s.doctorSearchInput} placeholder="Специальность: терапевт, кардиолог…" value={query} onChangeText={setQuery} /></View>
     <Text style={s.sectionIntro}>Выберите специалиста, откройте нужный анализ и запросите услугу.</Text>
-    <View style={s.doctorGrid}>{doctors.map((doctorItem) => <Pressable key={doctorItem.id} onPress={() => setSelectedDoctor(doctorItem)} style={({ pressed }) => [s.doctorDirectoryCard, pressed && { opacity: 0.75 }]}><View style={s.doctorAvatar}><Text style={s.avatarText}>{initials(doctorItem.full_name)}</Text></View><View style={{ flex: 1 }}><Text style={s.doctorDirectoryName}>{doctorItem.full_name}</Text><Text style={s.specialtyLine}>{doctorItem.specialization}</Text><View style={s.doctorOptions}><Text style={s.doctorOption}>Онлайн</Text>{doctorItem.appointment_slots?.length ? <Text style={s.doctorOption}>Приём</Text> : null}{doctorItem.home_visits ? <Text style={s.doctorOption}>На дом</Text> : null}</View></View><Ionicons name="chevron-forward" size={20} color={colors.muted} /></Pressable>)}</View>
+    <View style={s.doctorGrid}>{doctors.map((doctorItem) => <Pressable key={doctorItem.id} onPress={() => setSelectedDoctor(doctorItem)} style={({ pressed }) => [s.doctorDirectoryCard, pressed && { opacity: 0.75 }]}><View style={s.doctorAvatar}><Text style={s.avatarText}>{initials(doctorItem.full_name)}</Text></View><View style={{ flex: 1 }}><Text style={s.doctorDirectoryName}>{doctorItem.full_name}</Text><Text style={s.specialtyLine}>{doctorItem.specialization}</Text><View style={s.doctorOptions}><Text style={s.doctorOption}>Онлайн</Text><Text style={s.doctorOption}>Расписание</Text>{doctorItem.home_visits ? <Text style={s.doctorOption}>На дом</Text> : null}</View></View><Ionicons name="chevron-forward" size={20} color={colors.muted} /></Pressable>)}</View>
     {!doctors.length && <Empty icon="medkit-outline" title="Специалисты не найдены" text="Попробуйте другое название специальности." />}
-    <Modal visible={!!selectedDoctor} transparent animationType="slide" onRequestClose={() => setSelectedDoctor(null)}><View style={s.modalBackdrop}><View style={s.doctorRequestSheet}><View style={s.rowBetween}><View><Text style={s.eyebrow}>ЗАПРОС СПЕЦИАЛИСТУ</Text><Text style={s.cardTitle}>{selectedDoctor?.full_name}</Text><Text style={s.specialtyLine}>{selectedDoctor?.specialization}</Text></View><Pressable style={s.iconButton} onPress={() => setSelectedDoctor(null)}><Ionicons name="close" size={26} /></Pressable></View><Text style={s.label}>Какой анализ открыть врачу</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.markerPicker}>{analyses.map((analysis) => <Choice key={analysis.id} active={analysisID === analysis.id} label={`${analysis.title} · ${date(analysis.created_at)}`} onPress={() => setAnalysisID(analysis.id)} />)}</ScrollView><Field label="Комментарий врачу" multiline value={question} onChangeText={setQuestion} /><View style={s.serviceButtons}><Button label="Консультация" compact disabled={busy} onPress={() => void request("consultation")} />{selectedDoctor?.appointment_slots?.[0] ? <Button label="Записаться" compact kind="ghost" disabled={busy} onPress={() => void request("appointment", selectedDoctor.appointment_slots![0])} /> : null}{selectedDoctor?.home_visits ? <Button label="Вызов на дом" compact kind="ghost" disabled={busy} onPress={() => void request("home_visit")} /> : null}</View></View></View></Modal>
+    <Modal visible={!!selectedDoctor} transparent animationType="slide" onRequestClose={() => setSelectedDoctor(null)}><View style={s.modalBackdrop}><View style={s.doctorRequestSheet}><ScrollView contentContainerStyle={{gap:14}}><View style={s.rowBetween}><View><Text style={s.eyebrow}>ЗАПРОС СПЕЦИАЛИСТУ</Text><Text style={s.cardTitle}>{selectedDoctor?.full_name}</Text><Text style={s.specialtyLine}>{selectedDoctor?.specialization}</Text></View><Pressable style={s.iconButton} onPress={() => setSelectedDoctor(null)}><Ionicons name="close" size={26} /></Pressable></View><Text style={s.label}>Свободное время</Text>{availableSlots.length?<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.markerPicker}>{availableSlots.map(slot=><Choice key={slot.id} active={appointmentAt===slot.start_at} label={new Date(slot.start_at).toLocaleString("ru-RU",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} onPress={()=>setAppointmentAt(slot.start_at)}/>)}</ScrollView>:<Text style={s.cardHint}>Врач пока не открыл время для самостоятельной записи.</Text>}<Text style={s.label}>Анализ для доступа врачу (необязательно для записи)</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.markerPicker}>{analyses.map((analysis) => <Choice key={analysis.id} active={analysisID === analysis.id} label={`${analysis.title} · ${date(analysis.created_at)}`} onPress={() => setAnalysisID(analysis.id)} />)}</ScrollView><Field label="Комментарий врачу" multiline value={question} onChangeText={setQuestion} /><View style={s.serviceButtons}><Button label="Консультация" compact disabled={busy} onPress={() => void request("consultation")} /><Button label="Записаться" compact kind="ghost" disabled={busy||!appointmentAt} onPress={() => void request("appointment",appointmentAt)} />{selectedDoctor?.home_visits ? <Button label="Вызов на дом" compact kind="ghost" disabled={busy} onPress={() => void request("home_visit")} /> : null}</View></ScrollView></View></View></Modal>
   </ScrollView>;
 }
 
@@ -2622,6 +2589,55 @@ const s = StyleSheet.create({
   clinicalBlock: { gap: 3, marginTop: 8 },
   guidelineGrid: { gap: 11 },
   guidelineCard: { minHeight: 84, borderRadius: 20, padding: 15, flexDirection: "row", alignItems: "center", gap: 13, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, ...shadow },
+  schedulePage: { flex: 1, padding: 18, gap: 12, maxWidth: 1280, width: "100%", alignSelf: "center" },
+  doctorWelcome: { minHeight: 84, borderRadius: 22, paddingHorizontal: 22, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  doctorWelcomeCompact: { minHeight: 74, borderRadius: 18, paddingHorizontal: 16 },
+  doctorWelcomeTitle: { color: colors.white, fontSize: 21, fontWeight: "800", marginTop: 4 },
+  scheduleEdit: { minHeight: 42, borderRadius: 14, backgroundColor: "#FFFFFF20", paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 7 },
+  scheduleEditText: { color: colors.white, fontSize: 12, fontWeight: "800" },
+  weekToolbar: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 18 },
+  weekTitle: { color: colors.ink, fontSize: 17, fontWeight: "800" },
+  editHint: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.violetSoft, borderRadius: 14, padding: 10 },
+  calendarHorizontal: { flex: 1, borderRadius: 18, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  calendarVertical: { maxHeight: 560 },
+  calendarHeader: { height: 58, flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.line },
+  timeColumn: { width: 62, alignItems: "center", justifyContent: "center" },
+  dayHeader: { width: 98, alignItems: "center", justifyContent: "center", borderLeftWidth: 1, borderLeftColor: colors.line },
+  dayName: { color: colors.muted, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  dayNumber: { color: colors.ink, fontSize: 19, fontWeight: "900" },
+  calendarRow: { minHeight: 54, flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.line },
+  timeText: { color: colors.muted, fontSize: 11, fontWeight: "700" },
+  calendarCell: { width: 98, margin: 3, borderRadius: 10, borderLeftWidth: 1, borderLeftColor: colors.line, alignItems: "center", justifyContent: "center", backgroundColor: colors.paper },
+  availableCell: { backgroundColor: colors.aqua },
+  bookedCell: { backgroundColor: colors.violet },
+  cellText: { color: colors.muted, fontSize: 10, fontWeight: "800", textAlign: "center", padding: 3 },
+  noteComposer: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, borderRadius: 20, padding: 16 },
+  noteInput: { minHeight: 120, textAlignVertical: "top", paddingTop: 13, marginTop: 12 },
+  noteCard: { backgroundColor: colors.white, borderRadius: 18, padding: 16, borderLeftWidth: 4, borderLeftColor: colors.aqua, ...shadow },
+  aiChatCard: { minHeight: 92, padding: 15, borderRadius: 20, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, flexDirection: "row", alignItems: "center", gap: 13, ...shadow },
+  aiChatIcon: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.violet },
+  chatPage: { flex: 1, backgroundColor: colors.paper },
+  chatHeader: { minHeight: 68, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.line },
+  chatTitleInput: { flex: 1, fontSize: 17, fontWeight: "800", color: colors.ink, padding: 10 },
+  messages: { padding: 16, gap: 10, maxWidth: 900, width: "100%", alignSelf: "center" },
+  messageBubble: { maxWidth: "82%", borderRadius: 20, padding: 13 },
+  userBubble: { alignSelf: "flex-end", backgroundColor: colors.brand, borderBottomRightRadius: 6 },
+  assistantBubble: { alignSelf: "flex-start", backgroundColor: colors.white, borderBottomLeftRadius: 6, ...shadow },
+  messageTime: { color: colors.muted, fontSize: 9, marginTop: 6, alignSelf: "flex-end" },
+  chatComposer: { minHeight: 76, padding: 10, flexDirection: "row", alignItems: "flex-end", gap: 8, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.line },
+  chatInput: { flex: 1, maxHeight: 120, minHeight: 48, borderRadius: 17, backgroundColor: colors.paper, paddingHorizontal: 15, paddingVertical: 12, color: colors.ink },
+  sendButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.violet, alignItems: "center", justifyContent: "center" },
+  guidePublished: { color: colors.aqua, fontSize: 10, fontWeight: "800", marginTop: 5 },
+  guideReader: { flex: 1, backgroundColor: colors.paper },
+  guideBody: { width: "100%", maxWidth: 900, alignSelf: "center", padding: 20, paddingBottom: 80, gap: 18 },
+  guideContents: { borderRadius: 22, padding: 18, backgroundColor: colors.white, gap: 8, ...shadow },
+  contentsRow: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 11, borderBottomWidth: 1, borderBottomColor: colors.line },
+  contentsNumber: { width: 28, color: colors.violet, fontSize: 12, fontWeight: "900" },
+  contentsTitle: { flex: 1, color: colors.ink, fontSize: 13, lineHeight: 18, fontWeight: "700" },
+  guideSection: { borderRadius: 22, padding: 20, backgroundColor: colors.white, ...shadow },
+  guideSectionTitle: { color: colors.ink, fontSize: 21, lineHeight: 27, fontWeight: "900", marginBottom: 14 },
+  guideText: { color: colors.ink, fontSize: 15, lineHeight: 24 },
+  backToContents: { minHeight: 44, marginTop: 18, flexDirection: "row", gap: 7, alignItems: "center", alignSelf: "flex-start" },
   loading: {
     flex: 1,
     alignItems: "center",

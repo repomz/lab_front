@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import { ActivitySurvey, Analysis, ClinicalAssistResult, Consultation, NutritionSurvey, Role, User } from "./types";
+import { ActivitySurvey, AIChat, AIMessage, Analysis, ClinicalAssistResult, Consultation, Guide, GuideCatalog, NutritionSurvey, PatientNote, Role, ScheduleSlot, User } from "./types";
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080/api/v1";
@@ -101,7 +101,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ analysisID, doctorID, question }),
     }),
-  requestDoctor: (value: { analysisID: string; doctorID: string; question: string; serviceType: "consultation" | "appointment" | "home_visit"; appointmentAt?: string }) =>
+  requestDoctor: (value: { analysisID?: string; doctorID: string; question: string; serviceType: "consultation" | "appointment" | "home_visit"; appointmentAt?: string }) =>
     request<Consultation>("/consultations", { method: "POST", body: JSON.stringify(value) }),
   aiConsult: (question: string) =>
     request<Consultation>("/consultations/ai", { method: "POST", body: JSON.stringify({ question }) }),
@@ -114,6 +114,19 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ reply, status: "answered" }),
     }),
+  schedule: (doctorID: string, from: string, to: string) => request<ScheduleSlot[]>(`/doctors/${doctorID}/schedule?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  saveSchedule: (from: string, to: string, starts: string[]) => request("/doctor/schedule", { method: "PUT", body: JSON.stringify({ from, to, starts }) }),
+  patientNotes: (patientID: string) => request<PatientNote[]>(`/patients/${patientID}/notes`),
+  addPatientNote: (patientID: string, text: string) => request<PatientNote>(`/patients/${patientID}/notes`, { method: "POST", body: JSON.stringify({ text }) }),
+  aiChats: () => request<AIChat[]>("/ai/chats"),
+  createAIChat: (title = "") => request<AIChat>("/ai/chats", { method: "POST", body: JSON.stringify({ title }) }),
+  aiChat: (id: string) => request<AIChat>(`/ai/chats/${id}`),
+  renameAIChat: (id: string, title: string) => request(`/ai/chats/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  deleteAIChat: (id: string) => request<void>(`/ai/chats/${id}`, { method: "DELETE" }),
+  aiMessage: (id: string, content: string) => request<AIMessage>(`/ai/chats/${id}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
+  guides: () => request<GuideCatalog>("/guides"),
+  guide: (id: string) => request<Guide>(`/guides/${encodeURIComponent(id)}`),
+  syncGuides: () => request<GuideCatalog>("/guides/sync", { method: "POST" }),
   fileURL: (id: string) =>
     `${API_URL}/analyses/${id}/file?access_token=${encodeURIComponent(token)}`,
   reportURL: (id: string) =>
