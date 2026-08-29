@@ -31,8 +31,18 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.1";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.2";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
+const activityVideos = {
+  young: [require("./assets/activity/young-1.mp4"), require("./assets/activity/young-2.mp4")],
+  middle: [require("./assets/activity/middle-1.mp4"), require("./assets/activity/middle-2.mp4")],
+  senior: [require("./assets/activity/senior-1.mp4"), require("./assets/activity/senior-2.mp4")],
+};
+const activityPosters = {
+  young: require("./assets/activity/young.jpg"),
+  middle: require("./assets/activity/middle.jpg"),
+  senior: require("./assets/activity/senior.jpg"),
+};
 function Modal(props: React.ComponentProps<typeof NativeModal>) {
   if (!props.visible) return null;
   if (Platform.OS === "web") return <View style={s.webModalRoot}>{props.children}</View>;
@@ -463,14 +473,32 @@ function Home({
   );
 }
 
+function ActivityClip({ source }: { source: number }) {
+  const player = useVideoPlayer(source, (instance) => {
+    instance.loop = true;
+    instance.muted = true;
+    instance.play();
+  });
+  useEffect(() => {
+    player.play();
+  }, [player]);
+  return <VideoView player={player} style={s.homeVideo} nativeControls={false} contentFit="cover" />;
+}
+
 function WellnessVideoCard({ ageTone, onPress }: { ageTone: "young" | "middle" | "senior"; onPress: () => void }) {
-  const sets={young:["https://videos.pexels.com/video-files/30694240/13134519_640_360_30fps.mp4","https://videos.pexels.com/video-files/8795486/8795486-sd_960_506_24fps.mp4"],middle:["https://videos.pexels.com/video-files/8795486/8795486-sd_960_506_24fps.mp4","https://videos.pexels.com/video-files/8173053/8173053-sd_640_360_30fps.mp4"],senior:["https://videos.pexels.com/video-files/8173053/8173053-sd_640_360_30fps.mp4","https://videos.pexels.com/video-files/8795486/8795486-sd_960_506_24fps.mp4"]};
-  const [index,setIndex]=useState(0);useEffect(()=>{const timer=setInterval(()=>setIndex(v=>(v+1)%sets[ageTone].length),9000);return()=>clearInterval(timer)},[ageTone]);const source=sets[ageTone][index] || sets[ageTone][0]!;
-  const player = useVideoPlayer(source, (instance) => { instance.loop = true; instance.muted = true; instance.play(); });
+  const videos = activityVideos[ageTone];
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    setIndex(0);
+    const timer = setInterval(() => setIndex((value) => (value + 1) % videos.length), 9000);
+    return () => clearInterval(timer);
+  }, [ageTone, videos.length]);
+  const source = videos[index] || videos[0]!;
   const copy = ageTone === "young" ? ["Активная жизнь", "Бег, игры и тренировки"] : ageTone === "middle" ? ["Движение каждый день", "Ходьба, походы и гимнастика"] : ["Мягкая активность", "Прогулки, баланс и лёгкие движения"];
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [s.videoHomeCard, pressed && { opacity: 0.88 }]}>
-      <VideoView player={player} style={s.homeVideo} nativeControls={false} contentFit="cover" />
+      <Image source={activityPosters[ageTone]} style={s.activityPoster} />
+      <ActivityClip key={`${ageTone}-${index}`} source={source} />
       <LinearGradient colors={["#10182ACC", "#10182A1A"]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={s.videoOverlay}>
         <View style={{ flex: 1 }}><Text style={s.videoEyebrow}>АКТИВНЫЙ ОБРАЗ ЖИЗНИ</Text><Text style={s.videoTitle}>{copy[0]}</Text><Text style={s.videoSubtitle}>{copy[1]}</Text></View>
         <View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white} /></View>
@@ -2479,7 +2507,8 @@ const s = StyleSheet.create({
   foodValue: { fontSize: 18, fontWeight: "900" },
   foodLabel: { fontSize: 11, color: colors.muted },
   videoHomeCard: { height: 210, borderRadius: 25, overflow: "hidden", backgroundColor: colors.brandDark, ...shadow },
-  homeVideo: { width: "100%", height: "100%" },
+  activityPoster: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+  homeVideo: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   videoOverlay: { ...StyleSheet.absoluteFillObject, padding: 20, flexDirection: "row", alignItems: "flex-end" },
   videoEyebrow: { fontSize: 10, letterSpacing: 1.4, fontWeight: "900", color: "#C9D6FF" },
   videoTitle: { fontSize: 26, fontWeight: "900", color: colors.white, marginTop: 5 },
