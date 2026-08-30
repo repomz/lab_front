@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lab",
     "slug": "lab-health",
-    "version": "0.5.2",
+    "version": "0.5.3",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
@@ -36,8 +36,7 @@
           "cameraPermission": "Камера нужна, чтобы сфотографировать бланк анализа.",
           "microphonePermission": false
         }
-      ],
-      "expo-video"
+      ]
     ]
   }
 }

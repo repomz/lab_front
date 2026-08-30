@@ -9,7 +9,7 @@ import {
   Platform,
   Pressable,
   SafeAreaView,
-  ScrollView,
+  ScrollView as NativeScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -23,7 +23,6 @@ import * as ImagePicker from "expo-image-picker";
 import * as MailComposer from "expo-mail-composer";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import { useVideoPlayer, VideoView } from "expo-video";
 import { LinearGradient } from "expo-linear-gradient";
 import { api, API_URL, restoreToken, setToken } from "./src/api";
 import { ActivitySurvey, AIChat, Analysis, ClinicalAssistResult, Consultation, Guide, NutritionSurvey, PatientNote, Role, ScheduleSlot, User } from "./src/types";
@@ -31,18 +30,16 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.2";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.3";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
-const activityVideos = {
-  young: [require("./assets/activity/young-1.mp4"), require("./assets/activity/young-2.mp4")],
-  middle: [require("./assets/activity/middle-1.mp4"), require("./assets/activity/middle-2.mp4")],
-  senior: [require("./assets/activity/senior-1.mp4"), require("./assets/activity/senior-2.mp4")],
+const activityImages = {
+  young: [require("./assets/activity/young.jpg"), require("./assets/activity/young-2.jpg")],
+  middle: [require("./assets/activity/middle.jpg"), require("./assets/activity/middle-2.jpg")],
+  senior: [require("./assets/activity/senior.jpg"), require("./assets/activity/senior-2.jpg")],
 };
-const activityPosters = {
-  young: require("./assets/activity/young.jpg"),
-  middle: require("./assets/activity/middle.jpg"),
-  senior: require("./assets/activity/senior.jpg"),
-};
+const ScrollView = React.forwardRef<React.ComponentRef<typeof NativeScrollView>, React.ComponentProps<typeof NativeScrollView>>((props, ref) => (
+  <NativeScrollView {...props} ref={ref} bounces={false} alwaysBounceVertical={false} />
+));
 function Modal(props: React.ComponentProps<typeof NativeModal>) {
   if (!props.visible) return null;
   if (Platform.OS === "web") return <View style={s.webModalRoot}>{props.children}</View>;
@@ -189,14 +186,15 @@ export default function App() {
         }}
       />
     );
+  const homeLanding = tab === "home" && user.role === "patient";
   return (
     <SafeAreaView style={s.safe}>
-      <StatusBar style="dark" />
+      <StatusBar style={homeLanding ? "light" : "dark"} />
       <View style={s.shell}>
         {desktop && <Sidebar user={user} tab={tab} onTab={setTab} />}
         <View style={s.main}>
-          <View style={[s.top, compact && s.topCompact]}>
-            <Text style={[s.eyebrow, compact && s.eyebrowCompact]}>LAB HEALTH · v{APP_VERSION}</Text>
+          <View style={[s.top, compact && s.topCompact, homeLanding && s.homeTop]}>
+            <Text style={[s.eyebrow, compact && s.eyebrowCompact, homeLanding && s.homeTopText]}>LAB HEALTH · v{APP_VERSION}</Text>
             <AvatarView user={user} size={compact ? 38 : 42} />
           </View>
           {error ? <Banner text={error} onClose={() => setError("")} /> : null}
@@ -451,14 +449,14 @@ function Home({
     return <DoctorSchedule user={user} compact={compact} />;
   }
   return (
-    <ScrollView contentContainerStyle={[s.patientHome, compact && s.patientHomeCompact]}>
+    <View style={[s.patientHome, compact && s.patientHomeCompact]}>
       <LinearGradient
         colors={["#17214B", "#3C3A86", "#147D83"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={[s.welcome, s.patientWelcome, compact && s.patientWelcomeCompact]}
+        style={[s.patientWelcome, compact && s.patientWelcomeCompact]}
       >
-        <View style={{ flex: 1 }}>
+        <View>
           <Text style={s.welcomeOver}>ВАШ ПЕРСОНАЛЬНЫЙ ПЛАН</Text>
           <Text style={[s.welcomeTitle, compact && s.welcomeTitleCompact]}>
             Здравствуйте, {firstName(user.full_name)}
@@ -466,39 +464,28 @@ function Home({
           <Text style={[s.welcomeText, compact && s.welcomeTextCompact]}>{user.patient_profile ? `${age} лет · ИМТ ${user.patient_profile.bmi}` : "Заполните возраст, рост и вес в профиле"}</Text>
         </View>
       </LinearGradient>
-      <WellnessVideoCard ageTone={ageTone} onPress={() => setWellness("activity")} />
-      <NutritionMediaCard ageTone={ageTone} onPress={() => setWellness("nutrition")} />
+      <View style={[s.homeDiscovery, compact && s.homeDiscoveryCompact]}>
+        <WellnessPhotoCard ageTone={ageTone} onPress={() => setWellness("activity")} />
+        <NutritionMediaCard ageTone={ageTone} onPress={() => setWellness("nutrition")} />
+      </View>
       <WellnessModal kind={wellness} user={user} analyses={analyses} onClose={() => setWellness(null)} onUser={onUser} />
-    </ScrollView>
+    </View>
   );
 }
 
-function ActivityClip({ source }: { source: number }) {
-  const player = useVideoPlayer(source, (instance) => {
-    instance.loop = true;
-    instance.muted = true;
-    instance.play();
-  });
-  useEffect(() => {
-    player.play();
-  }, [player]);
-  return <VideoView player={player} style={s.homeVideo} nativeControls={false} contentFit="cover" />;
-}
-
-function WellnessVideoCard({ ageTone, onPress }: { ageTone: "young" | "middle" | "senior"; onPress: () => void }) {
-  const videos = activityVideos[ageTone];
+function WellnessPhotoCard({ ageTone, onPress }: { ageTone: "young" | "middle" | "senior"; onPress: () => void }) {
+  const images = activityImages[ageTone];
   const [index, setIndex] = useState(0);
   useEffect(() => {
     setIndex(0);
-    const timer = setInterval(() => setIndex((value) => (value + 1) % videos.length), 9000);
+    const timer = setInterval(() => setIndex((value) => (value + 1) % images.length), 7000);
     return () => clearInterval(timer);
-  }, [ageTone, videos.length]);
-  const source = videos[index] || videos[0]!;
+  }, [ageTone, images.length]);
+  const source = images[index] || images[0]!;
   const copy = ageTone === "young" ? ["Активная жизнь", "Бег, игры и тренировки"] : ageTone === "middle" ? ["Движение каждый день", "Ходьба, походы и гимнастика"] : ["Мягкая активность", "Прогулки, баланс и лёгкие движения"];
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [s.videoHomeCard, pressed && { opacity: 0.88 }]}>
-      <Image source={activityPosters[ageTone]} style={s.activityPoster} />
-      <ActivityClip key={`${ageTone}-${index}`} source={source} />
+    <Pressable onPress={onPress} style={({ pressed }) => [s.homeMediaCard, pressed && { opacity: 0.88 }]}>
+      <Image source={source} style={s.homeMediaImage} />
       <LinearGradient colors={["#10182ACC", "#10182A1A"]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={s.videoOverlay}>
         <View style={{ flex: 1 }}><Text style={s.videoEyebrow}>АКТИВНЫЙ ОБРАЗ ЖИЗНИ</Text><Text style={s.videoTitle}>{copy[0]}</Text><Text style={s.videoSubtitle}>{copy[1]}</Text></View>
         <View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white} /></View>
@@ -507,7 +494,7 @@ function WellnessVideoCard({ ageTone, onPress }: { ageTone: "young" | "middle" |
   );
 }
 
-function NutritionMediaCard({ageTone,onPress}:{ageTone:"young"|"middle"|"senior";onPress:()=>void}){const base=ageTone==="young"?0:ageTone==="middle"?1:2;const [offset,setOffset]=useState(0);useEffect(()=>{const timer=setInterval(()=>setOffset(v=>(v+1)%3),7000);return()=>clearInterval(timer)},[]);const image=nutritionImages[(base+offset)%3];const subtitle=ageTone==="young"?"Энергия, белок и регулярный режим":ageTone==="middle"?"Баланс, клетчатка и разумные порции":"Простая питательная еда и достаточное питьё";return <Pressable onPress={onPress} style={({pressed})=>[s.nutritionMediaCard,pressed&&{opacity:.86}]}><Image source={image} style={s.nutritionImage}/><LinearGradient colors={["#111827CC","#11182712"]} start={{x:0,y:1}} end={{x:1,y:0}} style={s.videoOverlay}><View style={{flex:1}}><Text style={s.videoEyebrow}>ПРАВИЛЬНОЕ ПИТАНИЕ</Text><Text style={s.videoTitle}>Еда для здоровья</Text><Text style={s.videoSubtitle}>{subtitle}</Text></View><View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white}/></View></LinearGradient></Pressable>}
+function NutritionMediaCard({ageTone,onPress}:{ageTone:"young"|"middle"|"senior";onPress:()=>void}){const base=ageTone==="young"?0:ageTone==="middle"?1:2;const [offset,setOffset]=useState(0);useEffect(()=>{const timer=setInterval(()=>setOffset(v=>(v+1)%3),7000);return()=>clearInterval(timer)},[]);const image=nutritionImages[(base+offset)%3];const subtitle=ageTone==="young"?"Энергия, белок и регулярный режим":ageTone==="middle"?"Баланс, клетчатка и разумные порции":"Простая питательная еда и достаточное питьё";return <Pressable onPress={onPress} style={({pressed})=>[s.homeMediaCard,pressed&&{opacity:.86}]}><Image source={image} style={s.homeMediaImage}/><LinearGradient colors={["#111827CC","#11182712"]} start={{x:0,y:1}} end={{x:1,y:0}} style={s.videoOverlay}><View style={{flex:1}}><Text style={s.videoEyebrow}>ПРАВИЛЬНОЕ ПИТАНИЕ</Text><Text style={s.videoTitle}>Еда для здоровья</Text><Text style={s.videoSubtitle}>{subtitle}</Text></View><View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white}/></View></LinearGradient></Pressable>}
 
 function FoodPart({ icon: foodIcon, value, label, color }: { icon: keyof typeof Ionicons.glyphMap; value: string; label: string; color: string }) {
   return <View style={s.foodPart}><Ionicons name={foodIcon} size={22} color={color} /><Text style={[s.foodValue, { color }]}>{value}</Text><Text style={s.foodLabel}>{label}</Text></View>;
@@ -774,7 +761,7 @@ function AIWorkspace(){const [chats,setChats]=useState<AIChat[]>([]);const [acti
 }
 
 function Guides(){
-  const [query,setQuery]=useState("");const [catalog,setCatalog]=useState<Guide[]>([]);const [active,setActive]=useState<Guide|null>(null);const [synced,setSynced]=useState("");const [busy,setBusy]=useState(false);const reader=useRef<ScrollView>(null);const positions=useRef<Record<string,number>>({});
+  const [query,setQuery]=useState("");const [catalog,setCatalog]=useState<Guide[]>([]);const [active,setActive]=useState<Guide|null>(null);const [synced,setSynced]=useState("");const [busy,setBusy]=useState(false);const reader=useRef<React.ComponentRef<typeof NativeScrollView>>(null);const positions=useRef<Record<string,number>>({});
   const load=async(sync=false)=>{setBusy(true);try{const r=sync?await api.syncGuides():await api.guides();setCatalog(r.items);setSynced(r.synced_at)}catch(e){Alert.alert("Guides недоступны",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}};useEffect(()=>{void load()},[]);
   async function open(item:Guide){setBusy(true);try{setActive(await api.guide(item.id));positions.current={}}catch(e){Alert.alert("Документ недоступен",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
   const filtered=catalog.filter(g=>`${g.title} ${g.code} ${g.category} ${g.specialties?.join(" ")} ${g.developers?.join(" ")}`.toLowerCase().includes(query.toLowerCase())).slice(0,120);
@@ -1796,6 +1783,8 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     backgroundColor: colors.paper,
   },
+  homeTop: { backgroundColor: "#17214B", borderBottomWidth: 0 },
+  homeTopText: { color: "#D9E3FF" },
   eyebrow: {
     fontSize: 11,
     fontWeight: "800",
@@ -2493,10 +2482,12 @@ const s = StyleSheet.create({
   },
   verifyText: { flex: 1, fontSize: 12, lineHeight: 18, color: colors.amber },
   registrationVitals: { width: "100%", flexDirection: "column", gap: 2 },
-  patientHome: { width: "100%", maxWidth: 920, alignSelf: "center", padding: 24, paddingBottom: 100, gap: 16 },
-  patientHomeCompact: { padding: 12, gap: 12 },
-  patientWelcome: { minHeight: 132, paddingVertical: 20 },
-  patientWelcomeCompact: { minHeight: 112, padding: 17 },
+  patientHome: { flex: 1, width: "100%", maxWidth: 920, alignSelf: "center", overflow: "hidden", backgroundColor: "#17214B" },
+  patientHomeCompact: { maxWidth: "100%" },
+  patientWelcome: { minHeight: 142, paddingHorizontal: 28, paddingTop: 18, paddingBottom: 42, justifyContent: "center" },
+  patientWelcomeCompact: { minHeight: 122, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 34 },
+  homeDiscovery: { flex: 1, minHeight: 0, marginTop: -24, padding: 20, paddingBottom: 24, gap: 14, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: "#F3F4FA", overflow: "hidden" },
+  homeDiscoveryCompact: { padding: 12, paddingTop: 14, paddingBottom: 12, gap: 11, borderTopLeftRadius: 28, borderTopRightRadius: 28 },
   wellnessCardHead: { flexDirection: "row", alignItems: "center", gap: 12 },
   wellnessIcon: { width: 44, height: 44, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: colors.violetSoft },
   wellnessTitle: { fontSize: 18, fontWeight: "800", color: colors.ink },
@@ -2506,12 +2497,11 @@ const s = StyleSheet.create({
   foodPart: { flex: 1, minHeight: 68, borderRadius: 16, backgroundColor: colors.paper, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 5 },
   foodValue: { fontSize: 18, fontWeight: "900" },
   foodLabel: { fontSize: 11, color: colors.muted },
-  videoHomeCard: { height: 210, borderRadius: 25, overflow: "hidden", backgroundColor: colors.brandDark, ...shadow },
-  activityPoster: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
-  homeVideo: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
-  videoOverlay: { ...StyleSheet.absoluteFillObject, padding: 20, flexDirection: "row", alignItems: "flex-end" },
+  homeMediaCard: { flex: 1, minHeight: 0, borderRadius: 24, overflow: "hidden", backgroundColor: colors.brandDark, ...shadow },
+  homeMediaImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%", resizeMode: "cover" },
+  videoOverlay: { ...StyleSheet.absoluteFillObject, padding: 17, flexDirection: "row", alignItems: "flex-end" },
   videoEyebrow: { fontSize: 10, letterSpacing: 1.4, fontWeight: "900", color: "#C9D6FF" },
-  videoTitle: { fontSize: 26, fontWeight: "900", color: colors.white, marginTop: 5 },
+  videoTitle: { fontSize: 23, fontWeight: "900", color: colors.white, marginTop: 4 },
   videoSubtitle: { color: "#EEF3FF", fontSize: 14, marginTop: 3 },
   videoArrow: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#FFFFFF24", alignItems: "center", justifyContent: "center" },
   wellnessSheet: { width: "100%", maxWidth: 720, maxHeight: "92%", alignSelf: "center", marginTop: "auto", backgroundColor: colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22 },
@@ -2654,8 +2644,6 @@ const s = StyleSheet.create({
   consultRowIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   pastCell: { backgroundColor: "#EEF0F3", opacity: .48 },
   healthInfoButton: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.violetSoft, borderRadius: 18, padding: 14 },
-  nutritionMediaCard: { minHeight: 210, borderRadius: 24, overflow: "hidden", backgroundColor: colors.ink },
-  nutritionImage: { width: "100%", height: 230, resizeMode: "cover" },
   doctorProfileHero: { alignItems: "center", gap: 7, paddingVertical: 18 },
   doctorProfileActions: { gap: 10 },
   verifiedText: { color: colors.aqua, fontWeight: "800", fontSize: 12 },
