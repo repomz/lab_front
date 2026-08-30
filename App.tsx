@@ -5,6 +5,7 @@ import {
   Animated,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Modal as NativeModal,
   Platform,
@@ -30,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.6";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.7";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
 type AgeBand = "under20" | "20s" | "30s" | "40s" | "50s" | "60s" | "70s" | "80s";
 const activityImages: Record<AgeBand, number[]> = {
@@ -184,9 +185,10 @@ export default function App() {
         onRefresh={() => refresh()}
         initialSelected={focusVisit}
         onTargetHandled={() => setFocusVisit(null)}
+        onTargetBack={() => setTab("home")}
       />
     ) : tab === "doctors" ? (
-      <DoctorsScreen user={user} onRefresh={() => refresh()} initialDoctorID={focusDoctorID} onTargetHandled={() => setFocusDoctorID("")} />
+      <DoctorsScreen user={user} onRefresh={() => refresh()} initialDoctorID={focusDoctorID} onTargetHandled={() => setFocusDoctorID("")} onTargetBack={() => setTab("home")} />
     ) : tab === "ai" ? (
       <AIWorkspace />
     ) : tab === "guides" ? (
@@ -640,7 +642,8 @@ function Analyses({
 }) {
   const [mode, setMode] = useState<"research" | "dynamics">("research");
   const [marker, setMarker] = useState("");
-  const [dynamicView, setDynamicView] = useState<"list" | "chart">("list");
+  const [dynamicFilter, setDynamicFilter] = useState<"all" | "normal" | "abnormal">("all");
+  const [dynamicNewest, setDynamicNewest] = useState(true);
   const [infoOpen,setInfoOpen]=useState(false);
   const groups = useMemo(() => {
     const grouped = new Map<string, Analysis[]>();
@@ -650,8 +653,18 @@ function Analyses({
     });
     return Array.from(grouped.entries());
   }, [data]);
-  const markerNames = useMemo(() => Array.from(new Set(data.flatMap((analysis) => analysis.markers.map((item) => item.name)))).sort(), [data]);
-  const series = useMemo(() => data.flatMap((analysis) => analysis.markers.filter((item) => item.name === marker && item.value !== undefined).map((item) => ({ date: analysis.created_at, value: item.value!, unit: item.unit || "", status: item.status }))).sort((a, b) => a.date.localeCompare(b.date)), [data, marker]);
+  const markerSeries = useMemo(() => {
+    const result = new Map<string, Array<{ date: string; value: number; unit: string; status: string; reference: string }>>();
+    data.forEach((analysis) => analysis.markers.forEach((item) => {
+      if (item.value === undefined) return;
+      const reference = item.reference_text || [item.reference_min, item.reference_max].filter((value) => value !== undefined).join(" — ") || "—";
+      result.set(item.name, [...(result.get(item.name) || []), { date: analysis.created_at, value: item.value, unit: item.unit || "", status: item.status, reference }]);
+    }));
+    result.forEach((points) => points.sort((a,b) => a.date.localeCompare(b.date)));
+    return result;
+  }, [data]);
+  const dynamicEntries = useMemo(() => Array.from(markerSeries.entries()).map(([name, points]) => ({ name, points, latest: points[points.length - 1]! })).filter((entry) => dynamicFilter === "all" || (dynamicFilter === "normal" ? entry.latest.status === "normal" : entry.latest.status !== "normal")).sort((a,b) => (dynamicNewest ? -1 : 1) * a.latest.date.localeCompare(b.latest.date)), [markerSeries, dynamicFilter, dynamicNewest]);
+  const series = marker ? markerSeries.get(marker) || [] : [];
   const overall = data.find((analysis) => analysis.ai_review?.doctor_needed)?.ai_review || data[0]?.ai_review;
   return (
     <View style={s.analysisPage}>
@@ -661,10 +674,15 @@ function Analyses({
       {data.length && (doctor || mode === "research") ? (
         <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View><View style={s.compactCardGrid}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} onPress={() => onOpen(analysis)} onDelete={onDelete ? () => onDelete(analysis) : undefined} />)}</View></View>)}</View>
       ) : data.length && mode === "dynamics" ? (
-        <View style={s.dynamicsPanel}>
-          <Text style={s.surveyTitle}>Выберите показатель</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.markerPicker}>{markerNames.map((name) => <Choice key={name} active={marker === name} label={name} onPress={() => setMarker(name)} />)}</ScrollView>
-          {marker ? <><View style={s.viewSwitch}><Choice active={dynamicView === "list"} label="Список" onPress={() => setDynamicView("list")} /><Choice active={dynamicView === "chart"} label="График" onPress={() => setDynamicView("chart")} /></View>{series.length > 1 ? dynamicView === "list" ? <View style={s.dynamicList}>{series.map((point) => <View key={point.date} style={s.dynamicRow}><Text style={s.analysisMeta}>{date(point.date)}</Text><Text style={s.markerValue}>{point.value} {point.unit}</Text><Status value={point.status} /></View>)}</View> : <DynamicsChart series={series} /> : <Empty icon="stats-chart-outline" title="Недостаточно данных" text="Для оценки динамики показатель должен быть распознан минимум в двух исследованиях." />}</> : <Empty icon="finger-print-outline" title="Выберите показатель" text="Покажем его значения по датам списком или графиком." />}
+        <View style={s.dynamicsScreen}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.dynamicFilters}>
+            <Pressable accessibilityRole="button" onPress={()=>setDynamicNewest((value)=>!value)} style={s.dynamicSort}><Ionicons name="swap-vertical" size={18} color={colors.white}/><Text style={s.dynamicSortText}>{dynamicNewest ? "Сначала новые" : "Сначала старые"}</Text></Pressable>
+            <Choice active={dynamicFilter === "all"} label="Все" onPress={() => setDynamicFilter("all")}/>
+            <Choice active={dynamicFilter === "normal"} label="● В норме" onPress={() => setDynamicFilter("normal")}/>
+            <Choice active={dynamicFilter === "abnormal"} label="● Вне нормы" onPress={() => setDynamicFilter("abnormal")}/>
+          </ScrollView>
+          <View style={s.dynamicCards}>{dynamicEntries.map((entry) => <DynamicMarkerCard key={entry.name} name={entry.name} points={entry.points} onPress={() => setMarker(entry.name)}/>)}</View>
+          {!dynamicEntries.length && <Empty icon="stats-chart-outline" title="Нет показателей" text="Для выбранного фильтра результатов пока нет."/>}
         </View>
       ) : (
         <Empty
@@ -673,11 +691,25 @@ function Analyses({
           text="Поддерживаются фотографии, изображения из галереи и PDF."
         />
       )}
-      <Modal visible={infoOpen} animationType="slide" onRequestClose={()=>setInfoOpen(false)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable style={s.iconButton} onPress={()=>setInfoOpen(false)}><Ionicons name="arrow-back" size={25}/></Pressable><Text style={s.fullScreenTitle}>Ваше состояние</Text><View style={s.iconButton}/></View><ScrollView contentContainerStyle={s.fullScreenBody}>{data.map((analysis)=><View key={analysis.id} style={s.aiRecommendation}><View style={s.rowBetween}><Text style={s.reviewTitle}>{analysis.title}</Text><Text style={s.analysisMeta}>{date(analysis.created_at)}</Text></View><Text style={s.body}>{analysis.ai_review?.summary||"Автоматическая сводка отсутствует."}</Text>{analysis.ai_review?.lifestyle?.map((x,i)=><Text key={`l-${i}`} style={s.body}>• {x}</Text>)}{analysis.ai_review?.nutrition?.map((x,i)=><Text key={`n-${i}`} style={s.body}>• {x}</Text>)}{analysis.ai_review?.suggested_specialty?<Text style={s.specialtyLine}>Обсудить со специалистом: {analysis.ai_review.suggested_specialty}</Text>:null}</View>)}<Text style={s.aiDisclaimer}>Информация сформирована автоматически по распознанным данным и не является диагнозом. Сверяйте значения с оригинальными бланками.</Text></ScrollView></SafeAreaView></Modal>
+      <Modal visible={infoOpen} animationType="slide" onRequestClose={()=>setInfoOpen(false)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setInfoOpen(false)}><Ionicons name="arrow-back" size={25}/></Pressable><Text style={s.fullScreenTitle}>Ваше состояние</Text><View style={s.iconButton}/></View><ScrollView contentContainerStyle={s.fullScreenBody}>{data.map((analysis)=><View key={analysis.id} style={s.aiRecommendation}><View style={s.rowBetween}><Text style={s.reviewTitle}>{analysis.title}</Text><Text style={s.analysisMeta}>{date(analysis.created_at)}</Text></View><Text style={s.body}>{analysis.ai_review?.summary||"Автоматическая сводка отсутствует."}</Text>{analysis.ai_review?.lifestyle?.map((x,i)=><Text key={`l-${i}`} style={s.body}>• {x}</Text>)}{analysis.ai_review?.nutrition?.map((x,i)=><Text key={`n-${i}`} style={s.body}>• {x}</Text>)}{analysis.ai_review?.suggested_specialty?<Text style={s.specialtyLine}>Обсудить со специалистом: {analysis.ai_review.suggested_specialty}</Text>:null}</View>)}<Text style={s.aiDisclaimer}>Информация сформирована автоматически по распознанным данным и не является диагнозом. Сверяйте значения с оригинальными бланками.</Text></ScrollView></SafeAreaView></Modal>
+      <Modal visible={!!marker} animationType="slide" onRequestClose={()=>setMarker("")}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setMarker("")}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{marker}</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.dynamicDetailBody}>{series.length ? <><View style={s.dynamicCurrent}><Text style={s.dynamicCurrentValue}>{series[series.length-1]?.value} {series[series.length-1]?.unit}</Text><Text style={s.analysisMeta}>Последний результат · {date(series[series.length-1]!.date)}</Text></View><DynamicsChart series={series}/><Text style={s.dynamicHistoryTitle}>История результатов</Text><View style={s.dynamicHistory}>{[...series].reverse().map((point,index)=><View key={`${point.date}-${index}`} style={s.dynamicHistoryRow}><View><Text style={s.dynamicHistoryDate}>{date(point.date)}</Text><Text style={[s.dynamicHistoryStatus,point.status!=="normal"&&{color:colors.coral}]}>{markerStatusText(point.status)} · {point.reference}</Text></View><Text style={s.dynamicHistoryValue}>{point.value} {point.unit}</Text></View>)}</View></>:null}</ScrollView></SafeAreaView></Modal>
     </ScrollView>
-    {!doctor && <View style={s.uploadDock}><Button label="Загрузить анализ" icon="cloud-upload-outline" onPress={onUpload}/></View>}
+    {!doctor && !infoOpen && !marker && <View style={s.uploadDock}><Button label="Загрузить анализ" icon="cloud-upload-outline" onPress={onUpload}/></View>}
     </View>
   );
+}
+
+function DynamicMarkerCard({ name, points, onPress }: { name: string; points: Array<{ date: string; value: number; unit: string; status: string; reference: string }>; onPress: () => void }) {
+  const latest = points[points.length - 1]!;
+  const recent = points.slice(-3);
+  const values = recent.map((point) => point.value);
+  const min = Math.min(...values), max = Math.max(...values), span = max - min || 1;
+  const abnormal = latest.status !== "normal";
+  return <Pressable accessibilityRole="button" accessibilityLabel={`Открыть динамику: ${name}`} onPress={onPress} style={({pressed})=>[s.dynamicMarkerCard,pressed&&s.pressablePressed]}>
+    <View style={s.dynamicMiniChart}>{[0,1,2].map((index)=>{const point=recent[index];const height=point?24+((point.value-min)/span)*46:18;return <View key={index} style={s.dynamicMiniTrack}><View style={[s.dynamicMiniBar,{height},point&&point.status!=="normal"&&s.dynamicMiniBarAlert]}/></View>})}</View>
+    <View style={s.dynamicMarkerCopy}><Text style={s.dynamicCardDate}>{date(latest.date)}</Text><Text style={s.dynamicCardTitle}>{name}: <Text style={s.dynamicCardValue}>{latest.value} {latest.unit}</Text></Text><Text numberOfLines={1} style={[s.dynamicCardReference,abnormal&&{color:colors.coral}]}>{abnormal ? (latest.status === "high" ? "▲ Выше нормы" : latest.status === "low" ? "▼ Ниже нормы" : "Проверить") : "● В норме"} ({latest.reference})</Text></View>
+    <View style={s.dynamicCardArrow}><Ionicons name="chevron-forward" size={23} color={colors.ink}/></View>
+  </Pressable>;
 }
 
 function DynamicsChart({ series }: { series: Array<{ date: string; value: number; unit: string; status: string }> }) {
@@ -685,7 +717,7 @@ function DynamicsChart({ series }: { series: Array<{ date: string; value: number
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min || 1;
-  return <View style={s.chartCard}><View style={s.chartBars}>{series.map((point) => { const height = 36 + ((point.value - min) / span) * 104; return <View key={point.date} style={s.chartColumn}><Text style={s.chartValue}>{point.value}</Text><View style={[s.chartBar, { height }, (point.status === "high" || point.status === "low") && s.chartBarAlert]} /><Text style={s.chartDate}>{date(point.date)}</Text></View>; })}</View><Text style={s.chartUnit}>{series[0]?.unit}</Text></View>;
+  return <View style={s.chartCard}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chartBars}>{series.map((point,index) => { const height = 52 + ((point.value - min) / span) * 118; return <View key={`${point.date}-${index}`} style={s.chartColumn}><Text style={s.chartValue}>{point.value}</Text><View style={[s.chartBar, { height }, point.status !== "normal" && s.chartBarAlert]} /><Text style={s.chartDate}>{new Date(point.date).toLocaleDateString("ru-RU",{day:"numeric",month:"short",year:"2-digit"})}</Text></View>; })}</ScrollView><Text style={s.chartUnit}>{series[0]?.unit}</Text></View>;
 }
 function AnalysisCard({
   item,
@@ -737,14 +769,17 @@ function Consultations({
   onRefresh,
   initialSelected,
   onTargetHandled,
+  onTargetBack,
 }: {
   data: Consultation[];
   user: User;
   onRefresh: () => void;
   initialSelected?: Consultation | null;
   onTargetHandled?: () => void;
+  onTargetBack?: () => void;
 }) {
   const [selected, setSelected] = useState<Consultation | null>(null);
+  const [openedFromHome, setOpenedFromHome] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
@@ -752,8 +787,16 @@ function Consultations({
   useEffect(() => {
     if (!initialSelected) return;
     setSelected(data.find((item) => item.id === initialSelected.id) || initialSelected);
+    setOpenedFromHome(true);
     onTargetHandled?.();
   }, [initialSelected, data, onTargetHandled]);
+  function closeSelected() {
+    setSelected(null);
+    if (openedFromHome) {
+      setOpenedFromHome(false);
+      onTargetBack?.();
+    }
+  }
   async function askAI() {
     if (!question.trim()) return;
     setAsking(true);
@@ -778,7 +821,7 @@ function Consultations({
       {data.length ? data.map(c=><Pressable key={c.id} onPress={()=>setSelected(c)} style={[s.consultRow,c.source==="ai"?s.aiConsultCard:s.doctorConsultCard]}><View style={[s.consultRowIcon,{backgroundColor:c.source==="ai"?"#EFEAFF":colors.mint}]}><Ionicons name={c.source==="ai"?"sparkles":"medkit-outline"} size={20} color={c.source==="ai"?colors.violet:colors.aqua}/></View><View style={{flex:1,minWidth:0}}><Text numberOfLines={1} style={s.analysisTitle}>{c.title||"Консультация"}</Text><Text style={s.analysisMeta}>{date(c.created_at)} · {c.status==="answered"?"есть ответ":"ожидает ответа"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>) : <Empty icon="chatbubbles-outline" title="Визитов пока нет" text="Здесь появятся ваши обращения, записи и ответы."/>}
     </ScrollView>
     <Modal visible={expanded} animationType="slide" onRequestClose={()=>setExpanded(false)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable style={s.iconButton} onPress={()=>setExpanded(false)}><Ionicons name="arrow-back" size={24}/></Pressable><Text style={s.fullScreenTitle}>Новая консультация</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.fullScreenBody} keyboardShouldPersistTaps="handled"><TextInput autoFocus multiline style={[s.input,s.complaintInput,s.largeComposer]} placeholder="Когда появились симптомы, где болит, что усиливает или облегчает состояние…" value={question} onChangeText={setQuestion}/><Pressable onPress={dictate} style={[s.micButton,listening&&s.micButtonActive]}><Ionicons name={listening?"radio":"mic-outline"} size={22} color={listening?colors.white:colors.violet}/><Text style={[s.micText,listening&&{color:colors.white}]}>{listening?"Слушаю…":"Продиктовать"}</Text></Pressable><Button label={asking?"Анализируем…":"Получить ответ"} disabled={asking||!question.trim()} onPress={()=>void askAI()}/><Text style={s.aiDisclaimer}>Не заменяет врача. При экстренных симптомах вызывайте 112.</Text></ScrollView></SafeAreaView></Modal>
-    <Modal visible={!!selected} animationType="slide" onRequestClose={()=>setSelected(null)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable style={s.iconButton} onPress={()=>setSelected(null)}><Ionicons name="arrow-back" size={24}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{selected?.title||"Консультация"}</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.fullScreenBody}><Text style={s.analysisMeta}>{selected?date(selected.created_at):""}</Text><View style={s.patientRecord}><Text style={s.replyLabel}>Ваш вопрос</Text><Text style={s.body}>{selected?.question}</Text></View>{selected?.reply?<View style={s.replyBox}><Text style={s.replyLabel}>{selected.source==="ai"?"Рекомендация":"Ответ врача"}</Text><Text style={s.body}>{selected.reply}</Text>{selected.specialty?<Text style={s.specialtyLine}>Специалист: {selected.specialty}</Text>:null}</View>:<Text style={s.cardHint}>Ответ ещё не получен.</Text>}</ScrollView></SafeAreaView></Modal>
+    <Modal visible={!!selected} animationType="slide" onRequestClose={closeSelected}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={closeSelected}><Ionicons name="arrow-back" size={24}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{selected?.title||"Консультация"}</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.fullScreenBody}><Text style={s.analysisMeta}>{selected?date(selected.created_at):""}</Text><View style={s.patientRecord}><Text style={s.replyLabel}>Ваш вопрос</Text><Text style={s.body}>{selected?.question}</Text></View>{selected?.reply?<View style={s.replyBox}><Text style={s.replyLabel}>{selected.source==="ai"?"Рекомендация":"Ответ врача"}</Text><Text style={s.body}>{selected.reply}</Text>{selected.specialty?<Text style={s.specialtyLine}>Специалист: {selected.specialty}</Text>:null}</View>:<Text style={s.cardHint}>Ответ ещё не получен.</Text>}</ScrollView></SafeAreaView></Modal>
   </>;
 }
 
@@ -830,7 +873,7 @@ function Guides(){
   <Modal visible={!!active} animationType="slide" onRequestClose={()=>setActive(null)}><SafeAreaView style={s.guideReader}><View style={s.chatHeader}><Pressable style={s.iconButton} onPress={()=>setActive(null)}><Ionicons name="arrow-back" size={24}/></Pressable><View style={{flex:1}}><Text numberOfLines={1} style={s.doctorDirectoryName}>{active?.title}</Text><Text style={s.analysisMeta}>{[active?.code,active?.status].filter(Boolean).join(" · ")}</Text></View><Pressable style={s.iconButton} onPress={()=>active&&void Linking.openURL(active.source_url)}><Ionicons name="open-outline" size={22} color={colors.brand}/></Pressable></View><ScrollView ref={reader} contentContainerStyle={s.guideBody}><View style={s.guideContents}><Text style={s.cardTitle}>Содержание</Text>{active?.sections?.map((section,index)=><Pressable key={section.id} style={s.contentsRow} onPress={()=>reader.current?.scrollTo({y:positions.current[section.id]||0,animated:true})}><Text style={s.contentsNumber}>{index+1}</Text><Text style={s.contentsTitle}>{section.title}</Text></Pressable>)}</View>{active?.sections?.map(section=><View key={section.id} onLayout={e=>{positions.current[section.id]=e.nativeEvent.layout.y}} style={s.guideSection}><Text style={s.guideSectionTitle}>{section.title}</Text><Text selectable style={s.guideText}>{section.content}</Text><Pressable style={s.backToContents} onPress={()=>reader.current?.scrollTo({y:0,animated:true})}><Ionicons name="arrow-up" size={16} color={colors.brand}/><Text style={s.link}>К содержанию</Text></Pressable></View>)}</ScrollView></SafeAreaView></Modal></>
 }
 
-function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled }: { user: User; onRefresh: () => void; initialDoctorID?: string; onTargetHandled?: () => void }) {
+function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled, onTargetBack }: { user: User; onRefresh: () => void; initialDoctorID?: string; onTargetHandled?: () => void; onTargetBack?: () => void }) {
   const [query, setQuery] = useState("");
   const [doctors, setDoctors] = useState<User[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<User | null>(null);
@@ -844,6 +887,7 @@ function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled }: { 
   const [personalConsent, setPersonalConsent] = useState(false);
   const [medicalConsent, setMedicalConsent] = useState(false);
   const [pendingRequest, setPendingRequest] = useState<{ serviceType: "consultation" | "appointment" | "home_visit"; at?: string } | null>(null);
+  const [openedFromHome, setOpenedFromHome] = useState(false);
 
   useEffect(() => {
     if (user.role === "patient") api.doctors(query).then(setDoctors).catch(() => setDoctors([]));
@@ -854,6 +898,7 @@ function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled }: { 
     if (!doctor) return;
     setSelectedDoctor(doctor);
     setAction("profile");
+    setOpenedFromHome(true);
     onTargetHandled?.();
   }, [initialDoctorID, doctors, onTargetHandled]);
   useEffect(() => {
@@ -896,7 +941,7 @@ function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled }: { 
       setBusy(false);
     }
   }
-  function close() { setSelectedDoctor(null); setAction("profile"); setPendingRequest(null); setPersonalConsent(false); setMedicalConsent(false); }
+  function close() { setSelectedDoctor(null); setAction("profile"); setPendingRequest(null); setPersonalConsent(false); setMedicalConsent(false); if (openedFromHome) { setOpenedFromHome(false); onTargetBack?.(); } }
   if (user.role === "doctor") return <ScrollView contentContainerStyle={s.scroll}><Empty icon="medical-outline" title="Каталог коллег" text="Раздел готовится." /></ScrollView>;
 
   return <>
@@ -1288,6 +1333,7 @@ function Detail({
   const { width } = useWindowDimensions();
   const compact = width < 520;
   const [exporting, setExporting] = useState<"share" | "view" | "print" | null>(null);
+  const [pdfURI, setPdfURI] = useState("");
   if (!item) return null;
   const active = item;
   const review = active.ai_review?.summary || "";
@@ -1332,7 +1378,9 @@ function Detail({
     setExporting(kind);
     try {
       if (Platform.OS === "web") {
-        if (kind === "print" || kind === "view") {
+        if (kind === "view") {
+          setPdfURI(api.reportURL(active.id));
+        } else if (kind === "print") {
           await Linking.openURL(api.reportURL(active.id));
         } else {
           await shareWebReport();
@@ -1341,6 +1389,7 @@ function Detail({
       }
       const uri = await nativeReport();
       if (kind === "view") {
+        setPdfURI(uri);
         await Linking.openURL(uri);
       } else if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, {
@@ -1359,6 +1408,7 @@ function Detail({
     }
   }
   return (
+    <>
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={s.fullScreenModal}>
         <View style={s.fullScreenInner}>
@@ -1431,6 +1481,13 @@ function Detail({
         </View>
       </SafeAreaView>
     </Modal>
+    <Modal visible={!!pdfURI} animationType="slide" onRequestClose={()=>setPdfURI("")}>
+      <SafeAreaView style={s.pdfViewerPage}>
+        <View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setPdfURI("")}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>PDF · {active.title}</Text><View style={s.headerSpacer}/></View>
+        {Platform.OS === "web" ? React.createElement("iframe", { src: pdfURI, title: `PDF ${active.title}`, style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#F6F4FA" } }) : <View style={s.nativePdfReturn}><Ionicons name="document-text-outline" size={58} color={colors.violet}/><Text style={s.cardTitle}>PDF открыт в просмотрщике устройства</Text><Text style={s.cardHint}>После возврата в Lab HEALTH нажмите стрелку назад, чтобы закрыть просмотр.</Text><Button label="Открыть PDF ещё раз" icon="open-outline" onPress={()=>void Linking.openURL(pdfURI)}/></View>}
+      </SafeAreaView>
+    </Modal>
+    </>
   );
 }
 
@@ -1459,7 +1516,7 @@ function SupportChat({ onLogout }: { onLogout: () => void }) {
       Alert.alert("Не удалось отправить", error instanceof Error ? error.message : "Ошибка");
     } finally { setBusy(false); }
   }
-  return <View style={s.supportPage}>
+  return <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={s.supportPage}>
     <LinearGradient colors={["#17214B", "#3C3A86", "#147D83"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.supportHeader}>
       <View style={s.supportIdentity}><View style={s.supportLogo}><Ionicons name="pulse" size={22} color={colors.white}/></View><View><Text style={s.supportTitle}>Поддержка Lab HEALTH</Text><Text style={s.supportOnline}>● На связи</Text></View></View>
       <Pressable accessibilityRole="button" accessibilityLabel="Выйти" onPress={onLogout} style={s.supportLogout}><Ionicons name="log-out-outline" size={22} color={colors.white}/></Pressable>
@@ -1469,7 +1526,7 @@ function SupportChat({ onLogout }: { onLogout: () => void }) {
       {loading ? <ActivityIndicator color={colors.violet}/> : messages.map((message) => <View key={message.id} style={[s.messageBubble,message.sender === "patient" ? s.userBubble : s.assistantBubble,s.supportBubble]}><Text style={[s.body,message.sender === "patient" && {color:colors.white}]}>{message.text}</Text><Text style={[s.messageTime,message.sender === "patient" && {color:"#FFFFFFAA"}]}>{new Date(message.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}
     </ScrollView>
     <View style={s.chatComposer}><TextInput multiline maxLength={4000} style={s.chatInput} placeholder="Сообщение поддержке…" value={textValue} onChangeText={setTextValue}/><Pressable accessibilityRole="button" accessibilityLabel="Отправить" disabled={busy||!textValue.trim()} style={[s.sendButton,(busy||!textValue.trim())&&{opacity:.45}]} onPress={()=>void send()}>{busy?<ActivityIndicator size="small" color={colors.white}/>:<Ionicons name="arrow-up" size={22} color={colors.white}/>}</Pressable></View>
-  </View>;
+  </KeyboardAvoidingView>;
 }
 
 function Sidebar({
@@ -2591,16 +2648,36 @@ const s = StyleSheet.create({
   groupTitle: { fontSize: 18, fontWeight: "800", color: colors.ink },
   groupCount: { minWidth: 26, paddingHorizontal: 7, paddingVertical: 3, textAlign: "center", borderRadius: 10, overflow: "hidden", backgroundColor: colors.blueSoft, color: colors.brand, fontWeight: "800", fontSize: 11 },
   compactCardGrid: { gap: 10 },
-  dynamicsPanel: { backgroundColor: colors.white, padding: 18, borderRadius: 22, borderWidth: 1, borderColor: colors.line, gap: 15, ...shadow },
-  markerPicker: { gap: 8, paddingVertical: 5 },
-  viewSwitch: { flexDirection: "row", gap: 8 },
-  dynamicList: { gap: 8 },
-  dynamicRow: { minHeight: 54, borderRadius: 14, paddingHorizontal: 14, backgroundColor: colors.paper, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  chartCard: { minHeight: 250, padding: 16, borderRadius: 18, backgroundColor: colors.paper },
-  chartBars: { minHeight: 205, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-around", gap: 8 },
-  chartColumn: { flex: 1, alignItems: "center", justifyContent: "flex-end", minWidth: 44 },
+  dynamicsScreen: { gap: 14 },
+  dynamicFilters: { gap: 8, paddingVertical: 3, paddingRight: 12 },
+  dynamicSort: { minHeight: 43, paddingHorizontal: 15, borderRadius: 14, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.ink },
+  dynamicSortText: { color: colors.white, fontSize: 13, fontWeight: "800" },
+  dynamicCards: { gap: 11 },
+  dynamicMarkerCard: { minHeight: 132, padding: 16, borderRadius: 25, backgroundColor: colors.white, flexDirection: "row", alignItems: "center", gap: 14, borderWidth: 1, borderColor: colors.line, ...shadow },
+  dynamicMiniChart: { width: 78, height: 82, flexDirection: "row", alignItems: "flex-end", gap: 7 },
+  dynamicMiniTrack: { flex: 1, height: 82, borderRadius: 12, overflow: "hidden", justifyContent: "flex-end", backgroundColor: "#EEF4F4" },
+  dynamicMiniBar: { width: "100%", minHeight: 16, borderRadius: 12, backgroundColor: colors.aqua },
+  dynamicMiniBarAlert: { backgroundColor: colors.coral },
+  dynamicMarkerCopy: { flex: 1, minWidth: 0, gap: 5 },
+  dynamicCardDate: { color: colors.muted, fontSize: 12 },
+  dynamicCardTitle: { color: colors.ink, fontSize: 17, lineHeight: 23, fontWeight: "600" },
+  dynamicCardValue: { fontWeight: "900" },
+  dynamicCardReference: { color: colors.aqua, fontSize: 12, fontWeight: "700" },
+  dynamicCardArrow: { width: 42, height: 50, borderRadius: 15, backgroundColor: colors.paper, alignItems: "center", justifyContent: "center" },
+  dynamicDetailBody: { width: "100%", maxWidth: 820, alignSelf: "center", padding: 18, paddingBottom: 100, gap: 18 },
+  dynamicCurrent: { minHeight: 94, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: colors.white, ...shadow },
+  dynamicCurrentValue: { color: colors.ink, fontSize: 28, fontWeight: "900" },
+  dynamicHistoryTitle: { color: colors.ink, fontSize: 23, fontWeight: "900", marginTop: 4 },
+  dynamicHistory: { borderRadius: 23, overflow: "hidden", backgroundColor: colors.white, ...shadow },
+  dynamicHistoryRow: { minHeight: 78, paddingHorizontal: 17, paddingVertical: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottomWidth: 1, borderBottomColor: colors.line },
+  dynamicHistoryDate: { color: colors.ink, fontSize: 14, fontWeight: "700" },
+  dynamicHistoryStatus: { color: colors.aqua, fontSize: 11, marginTop: 5 },
+  dynamicHistoryValue: { color: colors.ink, fontSize: 17, fontWeight: "900" },
+  chartCard: { minHeight: 285, padding: 16, borderRadius: 24, backgroundColor: colors.white, ...shadow },
+  chartBars: { minHeight: 230, minWidth: "100%", flexDirection: "row", alignItems: "flex-end", gap: 18, paddingHorizontal: 10 },
+  chartColumn: { alignItems: "center", justifyContent: "flex-end", width: 66 },
   chartValue: { fontSize: 11, fontWeight: "800", color: colors.ink, marginBottom: 5 },
-  chartBar: { width: 28, minHeight: 30, borderRadius: 8, backgroundColor: colors.aqua },
+  chartBar: { width: 34, minHeight: 30, borderRadius: 13, backgroundColor: colors.aqua },
   chartBarAlert: { backgroundColor: colors.coral },
   chartDate: { fontSize: 9, color: colors.muted, marginTop: 7, textAlign: "center" },
   chartUnit: { textAlign: "center", fontSize: 11, color: colors.muted, marginTop: 8 },
@@ -2678,7 +2755,7 @@ const s = StyleSheet.create({
   assistantBubble: { alignSelf: "flex-start", backgroundColor: colors.white, borderBottomLeftRadius: 6, ...shadow },
   messageTime: { color: colors.muted, fontSize: 9, marginTop: 6, alignSelf: "flex-end" },
   chatComposer: { minHeight: 76, padding: 10, flexDirection: "row", alignItems: "flex-end", gap: 8, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.line },
-  chatInput: { flex: 1, maxHeight: 120, minHeight: 48, borderRadius: 17, backgroundColor: colors.paper, paddingHorizontal: 15, paddingVertical: 12, color: colors.ink },
+  chatInput: { flex: 1, minWidth: 0, maxHeight: 120, minHeight: 48, borderRadius: 17, backgroundColor: colors.paper, paddingHorizontal: 15, paddingVertical: 12, color: colors.ink, fontSize: 16, lineHeight: 21 },
   sendButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.violet, alignItems: "center", justifyContent: "center" },
   supportPage: { flex: 1, minHeight: 0, backgroundColor: colors.paper },
   supportHeader: { minHeight: 82, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -2689,6 +2766,8 @@ const s = StyleSheet.create({
   supportLogout: { width: 44, height: 44, borderRadius: 15, backgroundColor: "#FFFFFF18", alignItems: "center", justifyContent: "center" },
   supportMessages: { flexGrow: 1, padding: 16, paddingBottom: 24, gap: 10, maxWidth: 900, width: "100%", alignSelf: "center", justifyContent: "flex-end" },
   supportBubble: { minWidth: 92 },
+  pdfViewerPage: { flex: 1, backgroundColor: colors.paper },
+  nativePdfReturn: { flex: 1, padding: 28, alignItems: "center", justifyContent: "center", gap: 16 },
   guidePublished: { color: colors.aqua, fontSize: 10, fontWeight: "800", marginTop: 5 },
   guideReader: { flex: 1, backgroundColor: colors.paper },
   guideBody: { width: "100%", maxWidth: 900, alignSelf: "center", padding: 20, paddingBottom: 80, gap: 18 },
