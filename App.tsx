@@ -20,7 +20,6 @@ import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import * as MailComposer from "expo-mail-composer";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { LinearGradient } from "expo-linear-gradient";
@@ -30,13 +29,20 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.3";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.4";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
-const activityImages = {
-  young: [require("./assets/activity/young.jpg"), require("./assets/activity/young-2.jpg")],
-  middle: [require("./assets/activity/middle.jpg"), require("./assets/activity/middle-2.jpg")],
-  senior: [require("./assets/activity/senior.jpg"), require("./assets/activity/senior-2.jpg")],
+type AgeBand = "under20" | "20s" | "30s" | "40s" | "50s" | "60s" | "70s" | "80s";
+const activityImages: Record<AgeBand, number[]> = {
+  under20: [require("./assets/activity/age/under20-1.jpg"), require("./assets/activity/age/under20-2.jpg")],
+  "20s": [require("./assets/activity/age/20s-1.jpg"), require("./assets/activity/age/20s-2.jpg")],
+  "30s": [require("./assets/activity/age/30s-1.jpg"), require("./assets/activity/age/30s-2.jpg")],
+  "40s": [require("./assets/activity/age/40s-1.jpg"), require("./assets/activity/age/40s-2.jpg")],
+  "50s": [require("./assets/activity/age/50s-1.jpg"), require("./assets/activity/age/50s-2.jpg")],
+  "60s": [require("./assets/activity/age/60s-1.jpg"), require("./assets/activity/age/60s-2.jpg")],
+  "70s": [require("./assets/activity/age/70s-1.jpg"), require("./assets/activity/age/70s-2.jpg")],
+  "80s": [require("./assets/activity/age/80s-1.jpg"), require("./assets/activity/age/80s-2.jpg")],
 };
+const activityBand = (age: number): AgeBand => age < 20 ? "under20" : age < 30 ? "20s" : age < 40 ? "30s" : age < 50 ? "40s" : age < 60 ? "50s" : age < 70 ? "60s" : age < 80 ? "70s" : "80s";
 const ScrollView = React.forwardRef<React.ComponentRef<typeof NativeScrollView>, React.ComponentProps<typeof NativeScrollView>>((props, ref) => (
   <NativeScrollView {...props} ref={ref} bounces={false} alwaysBounceVertical={false} />
 ));
@@ -59,7 +65,7 @@ const labels: Record<Tab, string> = {
   home: "Главная",
   analyses: "Анализы",
   patients: "Пациенты",
-  consultations: "Консультации",
+  consultations: "Визиты",
   doctors: "Врачи",
   ai: "AI",
   guides: "Guides",
@@ -165,11 +171,7 @@ export default function App() {
         onRefresh={() => refresh()}
       />
     ) : tab === "doctors" ? (
-      <DoctorsScreen
-        user={user}
-        analyses={analyses}
-        onRefresh={() => refresh()}
-      />
+      <DoctorsScreen user={user} onRefresh={() => refresh()} />
     ) : tab === "ai" ? (
       <AIWorkspace />
     ) : tab === "guides" ? (
@@ -188,15 +190,11 @@ export default function App() {
     );
   const homeLanding = tab === "home" && user.role === "patient";
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={[s.safe, homeLanding && s.safeHome]}>
       <StatusBar style={homeLanding ? "light" : "dark"} />
       <View style={s.shell}>
         {desktop && <Sidebar user={user} tab={tab} onTab={setTab} />}
         <View style={s.main}>
-          <View style={[s.top, compact && s.topCompact, homeLanding && s.homeTop]}>
-            <Text style={[s.eyebrow, compact && s.eyebrowCompact, homeLanding && s.homeTopText]}>LAB HEALTH · v{APP_VERSION}</Text>
-            <AvatarView user={user} size={compact ? 38 : 42} />
-          </View>
           {error ? <Banner text={error} onClose={() => setError("")} /> : null}
           <View style={s.content}>{content}</View>
           {!desktop && <Bottom role={user.role} tab={tab} onTab={setTab} />}
@@ -445,6 +443,7 @@ function Home({
   const [wellness, setWellness] = useState<"activity" | "nutrition" | null>(null);
   const age = user.patient_profile?.age || 35;
   const ageTone = age < 40 ? "young" : age < 65 ? "middle" : "senior";
+  const ageGroup = activityBand(age);
   if (user.role === "doctor") {
     return <DoctorSchedule user={user} compact={compact} />;
   }
@@ -465,7 +464,7 @@ function Home({
         </View>
       </LinearGradient>
       <View style={[s.homeDiscovery, compact && s.homeDiscoveryCompact]}>
-        <WellnessPhotoCard ageTone={ageTone} onPress={() => setWellness("activity")} />
+        <WellnessPhotoCard ageBand={ageGroup} onPress={() => setWellness("activity")} />
         <NutritionMediaCard ageTone={ageTone} onPress={() => setWellness("nutrition")} />
       </View>
       <WellnessModal kind={wellness} user={user} analyses={analyses} onClose={() => setWellness(null)} onUser={onUser} />
@@ -473,28 +472,37 @@ function Home({
   );
 }
 
-function WellnessPhotoCard({ ageTone, onPress }: { ageTone: "young" | "middle" | "senior"; onPress: () => void }) {
-  const images = activityImages[ageTone];
+function WellnessPhotoCard({ ageBand, onPress }: { ageBand: AgeBand; onPress: () => void }) {
+  const images = activityImages[ageBand];
   const [index, setIndex] = useState(0);
   useEffect(() => {
     setIndex(0);
     const timer = setInterval(() => setIndex((value) => (value + 1) % images.length), 7000);
     return () => clearInterval(timer);
-  }, [ageTone, images.length]);
+  }, [ageBand, images.length]);
   const source = images[index] || images[0]!;
-  const copy = ageTone === "young" ? ["Активная жизнь", "Бег, игры и тренировки"] : ageTone === "middle" ? ["Движение каждый день", "Ходьба, походы и гимнастика"] : ["Мягкая активность", "Прогулки, баланс и лёгкие движения"];
+  const copy: Record<AgeBand, [string, string]> = {
+    under20: ["Движение в радость", "Игры, велосипед и командный спорт"],
+    "20s": ["Энергия каждый день", "Бег, тренировки и активный отдых"],
+    "30s": ["Активность в ритме жизни", "Велосипед, фитнес и прогулки"],
+    "40s": ["Сила и подвижность", "Походы, йога и регулярное движение"],
+    "50s": ["Движение каждый день", "Ходьба, вода и умеренные нагрузки"],
+    "60s": ["Активное долголетие", "Прогулки и гимнастика на свежем воздухе"],
+    "70s": ["Уверенное движение", "Баланс, прогулки и мягкая нагрузка"],
+    "80s": ["Бережная активность", "Спокойные прогулки и лёгкие движения"],
+  };
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [s.homeMediaCard, pressed && { opacity: 0.88 }]}>
-      <Image source={source} style={s.homeMediaImage} />
+      <Image source={source} style={s.homeMediaImage as any} />
       <LinearGradient colors={["#10182ACC", "#10182A1A"]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={s.videoOverlay}>
-        <View style={{ flex: 1 }}><Text style={s.videoEyebrow}>АКТИВНЫЙ ОБРАЗ ЖИЗНИ</Text><Text style={s.videoTitle}>{copy[0]}</Text><Text style={s.videoSubtitle}>{copy[1]}</Text></View>
+        <View style={{ flex: 1 }}><Text style={s.videoEyebrow}>АКТИВНЫЙ ОБРАЗ ЖИЗНИ</Text><Text style={s.videoTitle}>{copy[ageBand][0]}</Text><Text style={s.videoSubtitle}>{copy[ageBand][1]}</Text></View>
         <View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white} /></View>
       </LinearGradient>
     </Pressable>
   );
 }
 
-function NutritionMediaCard({ageTone,onPress}:{ageTone:"young"|"middle"|"senior";onPress:()=>void}){const base=ageTone==="young"?0:ageTone==="middle"?1:2;const [offset,setOffset]=useState(0);useEffect(()=>{const timer=setInterval(()=>setOffset(v=>(v+1)%3),7000);return()=>clearInterval(timer)},[]);const image=nutritionImages[(base+offset)%3];const subtitle=ageTone==="young"?"Энергия, белок и регулярный режим":ageTone==="middle"?"Баланс, клетчатка и разумные порции":"Простая питательная еда и достаточное питьё";return <Pressable onPress={onPress} style={({pressed})=>[s.homeMediaCard,pressed&&{opacity:.86}]}><Image source={image} style={s.homeMediaImage}/><LinearGradient colors={["#111827CC","#11182712"]} start={{x:0,y:1}} end={{x:1,y:0}} style={s.videoOverlay}><View style={{flex:1}}><Text style={s.videoEyebrow}>ПРАВИЛЬНОЕ ПИТАНИЕ</Text><Text style={s.videoTitle}>Еда для здоровья</Text><Text style={s.videoSubtitle}>{subtitle}</Text></View><View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white}/></View></LinearGradient></Pressable>}
+function NutritionMediaCard({ageTone,onPress}:{ageTone:"young"|"middle"|"senior";onPress:()=>void}){const base=ageTone==="young"?0:ageTone==="middle"?1:2;const [offset,setOffset]=useState(0);useEffect(()=>{const timer=setInterval(()=>setOffset(v=>(v+1)%3),7000);return()=>clearInterval(timer)},[]);const image=nutritionImages[(base+offset)%3];const subtitle=ageTone==="young"?"Энергия, белок и регулярный режим":ageTone==="middle"?"Баланс, клетчатка и разумные порции":"Простая питательная еда и достаточное питьё";return <Pressable onPress={onPress} style={({pressed})=>[s.homeMediaCard,pressed&&{opacity:.86}]}><Image source={image} style={s.homeMediaImage as any}/><LinearGradient colors={["#111827CC","#11182712"]} start={{x:0,y:1}} end={{x:1,y:0}} style={s.videoOverlay}><View style={{flex:1}}><Text style={s.videoEyebrow}>ПРАВИЛЬНОЕ ПИТАНИЕ</Text><Text style={s.videoTitle}>Еда для здоровья</Text><Text style={s.videoSubtitle}>{subtitle}</Text></View><View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white}/></View></LinearGradient></Pressable>}
 
 function FoodPart({ icon: foodIcon, value, label, color }: { icon: keyof typeof Ionicons.glyphMap; value: string; label: string; color: string }) {
   return <View style={s.foodPart}><Ionicons name={foodIcon} size={22} color={color} /><Text style={[s.foodValue, { color }]}>{value}</Text><Text style={s.foodLabel}>{label}</Text></View>;
@@ -714,7 +722,7 @@ function Consultations({
   return <>
     <ScrollView contentContainerStyle={s.scroll}>
       {user.role === "patient" && <Pressable onPress={()=>setExpanded(true)} style={s.complaintPrompt}><View style={s.complaintIcon}><Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.violet}/></View><View style={{flex:1}}><Text style={s.complaintTitle}>Что вас беспокоит?</Text><Text style={s.complaintPlaceholder} numberOfLines={1}>Опишите или продиктуйте жалобы…</Text></View><Ionicons name="chevron-forward" size={21} color={colors.muted}/></Pressable>}
-      {data.length ? data.map(c=><Pressable key={c.id} onPress={()=>setSelected(c)} style={[s.consultRow,c.source==="ai"?s.aiConsultCard:s.doctorConsultCard]}><View style={[s.consultRowIcon,{backgroundColor:c.source==="ai"?"#EFEAFF":colors.mint}]}><Ionicons name={c.source==="ai"?"sparkles":"medkit-outline"} size={20} color={c.source==="ai"?colors.violet:colors.aqua}/></View><View style={{flex:1,minWidth:0}}><Text numberOfLines={1} style={s.analysisTitle}>{c.title||"Консультация"}</Text><Text style={s.analysisMeta}>{date(c.created_at)} · {c.status==="answered"?"есть ответ":"ожидает ответа"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>) : <Empty icon="chatbubbles-outline" title="Консультаций пока нет" text="Здесь появятся ваши обращения и ответы."/>}
+      {data.length ? data.map(c=><Pressable key={c.id} onPress={()=>setSelected(c)} style={[s.consultRow,c.source==="ai"?s.aiConsultCard:s.doctorConsultCard]}><View style={[s.consultRowIcon,{backgroundColor:c.source==="ai"?"#EFEAFF":colors.mint}]}><Ionicons name={c.source==="ai"?"sparkles":"medkit-outline"} size={20} color={c.source==="ai"?colors.violet:colors.aqua}/></View><View style={{flex:1,minWidth:0}}><Text numberOfLines={1} style={s.analysisTitle}>{c.title||"Консультация"}</Text><Text style={s.analysisMeta}>{date(c.created_at)} · {c.status==="answered"?"есть ответ":"ожидает ответа"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>) : <Empty icon="chatbubbles-outline" title="Визитов пока нет" text="Здесь появятся ваши обращения, записи и ответы."/>}
     </ScrollView>
     <Modal visible={expanded} animationType="slide" onRequestClose={()=>setExpanded(false)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable style={s.iconButton} onPress={()=>setExpanded(false)}><Ionicons name="arrow-back" size={24}/></Pressable><Text style={s.fullScreenTitle}>Новая консультация</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.fullScreenBody} keyboardShouldPersistTaps="handled"><TextInput autoFocus multiline style={[s.input,s.complaintInput,s.largeComposer]} placeholder="Когда появились симптомы, где болит, что усиливает или облегчает состояние…" value={question} onChangeText={setQuestion}/><Pressable onPress={dictate} style={[s.micButton,listening&&s.micButtonActive]}><Ionicons name={listening?"radio":"mic-outline"} size={22} color={listening?colors.white:colors.violet}/><Text style={[s.micText,listening&&{color:colors.white}]}>{listening?"Слушаю…":"Продиктовать"}</Text></Pressable><Button label={asking?"Анализируем…":"Получить ответ"} disabled={asking||!question.trim()} onPress={()=>void askAI()}/><Text style={s.aiDisclaimer}>Не заменяет врача. При экстренных симптомах вызывайте 112.</Text></ScrollView></SafeAreaView></Modal>
     <Modal visible={!!selected} animationType="slide" onRequestClose={()=>setSelected(null)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable style={s.iconButton} onPress={()=>setSelected(null)}><Ionicons name="arrow-back" size={24}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{selected?.title||"Консультация"}</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.fullScreenBody}><Text style={s.analysisMeta}>{selected?date(selected.created_at):""}</Text><View style={s.patientRecord}><Text style={s.replyLabel}>Ваш вопрос</Text><Text style={s.body}>{selected?.question}</Text></View>{selected?.reply?<View style={s.replyBox}><Text style={s.replyLabel}>{selected.source==="ai"?"Рекомендация":"Ответ врача"}</Text><Text style={s.body}>{selected.reply}</Text>{selected.specialty?<Text style={s.specialtyLine}>Специалист: {selected.specialty}</Text>:null}</View>:<Text style={s.cardHint}>Ответ ещё не получен.</Text>}</ScrollView></SafeAreaView></Modal>
@@ -769,18 +777,20 @@ function Guides(){
   <Modal visible={!!active} animationType="slide" onRequestClose={()=>setActive(null)}><SafeAreaView style={s.guideReader}><View style={s.chatHeader}><Pressable style={s.iconButton} onPress={()=>setActive(null)}><Ionicons name="arrow-back" size={24}/></Pressable><View style={{flex:1}}><Text numberOfLines={1} style={s.doctorDirectoryName}>{active?.title}</Text><Text style={s.analysisMeta}>{[active?.code,active?.status].filter(Boolean).join(" · ")}</Text></View><Pressable style={s.iconButton} onPress={()=>active&&void Linking.openURL(active.source_url)}><Ionicons name="open-outline" size={22} color={colors.brand}/></Pressable></View><ScrollView ref={reader} contentContainerStyle={s.guideBody}><View style={s.guideContents}><Text style={s.cardTitle}>Содержание</Text>{active?.sections?.map((section,index)=><Pressable key={section.id} style={s.contentsRow} onPress={()=>reader.current?.scrollTo({y:positions.current[section.id]||0,animated:true})}><Text style={s.contentsNumber}>{index+1}</Text><Text style={s.contentsTitle}>{section.title}</Text></Pressable>)}</View>{active?.sections?.map(section=><View key={section.id} onLayout={e=>{positions.current[section.id]=e.nativeEvent.layout.y}} style={s.guideSection}><Text style={s.guideSectionTitle}>{section.title}</Text><Text selectable style={s.guideText}>{section.content}</Text><Pressable style={s.backToContents} onPress={()=>reader.current?.scrollTo({y:0,animated:true})}><Ionicons name="arrow-up" size={16} color={colors.brand}/><Text style={s.link}>К содержанию</Text></Pressable></View>)}</ScrollView></SafeAreaView></Modal></>
 }
 
-function DoctorsScreen({ user, analyses, onRefresh }: { user: User; analyses: Analysis[]; onRefresh: () => void }) {
+function DoctorsScreen({ user, onRefresh }: { user: User; onRefresh: () => void }) {
   const [query, setQuery] = useState("");
   const [doctors, setDoctors] = useState<User[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<User | null>(null);
   const [action, setAction] = useState<"profile" | "consultation" | "appointment">("profile");
-  const [analysisID, setAnalysisID] = useState(analyses[0]?.id || "");
   const [question, setQuestion] = useState("Прошу прокомментировать результаты и дальнейшие действия.");
   const [availableSlots, setAvailableSlots] = useState<ScheduleSlot[]>([]);
   const [appointmentAt, setAppointmentAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [slotsBusy, setSlotsBusy] = useState(false);
   const [slotsError, setSlotsError] = useState("");
+  const [personalConsent, setPersonalConsent] = useState(false);
+  const [medicalConsent, setMedicalConsent] = useState(false);
+  const [pendingRequest, setPendingRequest] = useState<{ serviceType: "consultation" | "appointment" | "home_visit"; at?: string } | null>(null);
 
   useEffect(() => {
     if (user.role === "patient") api.doctors(query).then(setDoctors).catch(() => setDoctors([]));
@@ -796,20 +806,27 @@ function DoctorsScreen({ user, analyses, onRefresh }: { user: User; analyses: An
       .finally(() => setSlotsBusy(false));
   }, [selectedDoctor, action]);
 
-  async function request(serviceType: "consultation" | "appointment" | "home_visit", at?: string) {
+  function request(serviceType: "consultation" | "appointment" | "home_visit", at?: string) {
     if (!selectedDoctor) return;
-    if (serviceType === "consultation" && !analysisID) {
-      Alert.alert("Выберите анализ", "Для консультации нужен хотя бы один анализ.");
-      return;
-    }
     if (serviceType === "appointment" && !at) {
       Alert.alert("Выберите время", "Выберите свободную ячейку врача.");
       return;
     }
+    if (!personalConsent || !medicalConsent) {
+      setPendingRequest({ serviceType, at });
+      return;
+    }
+    void submitRequest(serviceType, at);
+  }
+  async function submitRequest(serviceType: "consultation" | "appointment" | "home_visit", at?: string) {
+    if (!selectedDoctor) return;
     setBusy(true);
     try {
-      await api.requestDoctor({ analysisID: analysisID || undefined, doctorID: selectedDoctor.id, question, serviceType, appointmentAt: at });
+      await api.requestDoctor({ doctorID: selectedDoctor.id, question, serviceType, appointmentAt: at, personalDataConsent: personalConsent, medicalDataConsent: medicalConsent });
       setSelectedDoctor(null);
+      setPendingRequest(null);
+      setPersonalConsent(false);
+      setMedicalConsent(false);
       onRefresh();
       Alert.alert(serviceType === "appointment" ? "Вы записаны" : "Запрос отправлен");
     } catch (error) {
@@ -818,7 +835,7 @@ function DoctorsScreen({ user, analyses, onRefresh }: { user: User; analyses: An
       setBusy(false);
     }
   }
-  function close() { setSelectedDoctor(null); setAction("profile"); }
+  function close() { setSelectedDoctor(null); setAction("profile"); setPendingRequest(null); setPersonalConsent(false); setMedicalConsent(false); }
   if (user.role === "doctor") return <ScrollView contentContainerStyle={s.scroll}><Empty icon="medical-outline" title="Каталог коллег" text="Раздел готовится." /></ScrollView>;
 
   return <>
@@ -832,6 +849,11 @@ function DoctorsScreen({ user, analyses, onRefresh }: { user: User; analyses: An
     </ScrollView>
     <Modal visible={!!selectedDoctor} animationType="slide" onRequestClose={close}>
       <SafeAreaView style={s.fullScreenModal}>
+        {pendingRequest && <View style={s.consentWarning}>
+          <View style={s.consentWarningHead}><Ionicons name="warning-outline" size={22} color={colors.amber}/><Text style={s.consentWarningTitle}>Доступ будет ограничен</Text></View>
+          <Text style={s.consentWarningText}>{!personalConsent && !medicalConsent ? "Врач не получит ваши персональные данные и результаты обследований." : !personalConsent ? "Врач не получит персональные данные и сведения профиля." : "Врач не получит результаты анализов и других обследований."}</Text>
+          <View style={s.consentWarningActions}><Button compact kind="ghost" label="Отмена" onPress={() => setPendingRequest(null)}/><Button compact label="Отправить" disabled={busy} onPress={() => void submitRequest(pendingRequest.serviceType, pendingRequest.at)}/></View>
+        </View>}
         <View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={action === "profile" ? close : () => setAction("profile")}><Ionicons name="arrow-back" size={24}/></Pressable><Text style={s.fullScreenTitle}>{action === "profile" ? "Профиль врача" : action === "appointment" ? "Запись на приём" : "Запрос консультации"}</Text><View style={s.headerSpacer}/></View>
         <ScrollView contentContainerStyle={s.fullScreenBody} keyboardShouldPersistTaps="handled">
           <View style={s.doctorProfileHero}><AvatarView user={selectedDoctor!} size={84}/><Text style={s.cardTitle}>{selectedDoctor?.full_name}</Text><Text style={s.specialtyLine}>{selectedDoctor?.specialization}</Text>{selectedDoctor?.verified && <Text style={s.verifiedText}>✓ Профиль подтверждён</Text>}</View>
@@ -839,17 +861,30 @@ function DoctorsScreen({ user, analyses, onRefresh }: { user: User; analyses: An
             <View style={s.patientRecord}><Text style={s.replyLabel}>О враче</Text><Text style={s.body}>Специальность: {selectedDoctor?.specialization || "не указана"}</Text><Text style={s.body}>Лицензия: {selectedDoctor?.license_number || "не указана"}</Text><Text style={s.body}>Выезд на дом: {selectedDoctor?.home_visits ? "доступен" : "не заявлен"}</Text></View>
             <View style={s.doctorProfileActions}><Button label="Запросить консультацию" icon="chatbubble-outline" onPress={() => setAction("consultation")}/><Button label="Записаться на приём" icon="calendar-outline" kind="ghost" onPress={() => setAction("appointment")}/>{selectedDoctor?.home_visits && <Button label="Вызвать на дом" icon="home-outline" kind="ghost" disabled={busy} onPress={() => void request("home_visit")}/>}</View>
           </> : action === "consultation" ? <>
-            <Text style={s.label}>Выберите анализ</Text><View style={s.choiceWrap}>{analyses.map((analysis) => <Choice key={analysis.id} active={analysisID === analysis.id} label={`${analysis.title} · ${date(analysis.created_at)}`} onPress={() => setAnalysisID(analysis.id)}/>)}</View>
-            {!analyses.length && <Text style={s.cardHint}>Сначала загрузите анализ.</Text>}
-            <Field label="Вопрос врачу" multiline value={question} onChangeText={setQuestion}/><Button label={busy ? "Отправляем…" : "Отправить запрос"} disabled={busy || !analysisID} onPress={() => void request("consultation")}/>
+            <Field label="Вопрос врачу" multiline value={question} onChangeText={setQuestion}/>
+            <ConsentControls personal={personalConsent} medical={medicalConsent} onPersonal={setPersonalConsent} onMedical={setMedicalConsent}/>
+            <Button label={busy ? "Отправляем…" : "Отправить запрос"} disabled={busy} onPress={() => request("consultation")}/>
           </> : <>
             {slotsBusy ? <ActivityIndicator color={colors.brand}/> : slotsError ? <Text style={s.error}>{slotsError}</Text> : availableSlots.length ? <View style={s.slotGroups}>{availableSlots.map((slot) => <Choice key={slot.id} active={appointmentAt === slot.start_at} label={new Date(slot.start_at).toLocaleString("ru-RU", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} onPress={() => setAppointmentAt(slot.start_at)}/>)}</View> : <Empty icon="calendar-outline" title="Будущих часов пока нет" text="Врач ещё не открыл новые ячейки."/>}
-            <Field label="Комментарий (необязательно)" multiline value={question} onChangeText={setQuestion}/><Button label={busy ? "Записываем…" : "Подтвердить запись"} disabled={busy || !appointmentAt} onPress={() => void request("appointment", appointmentAt)}/>
+            <Field label="Комментарий (необязательно)" multiline value={question} onChangeText={setQuestion}/>
+            <ConsentControls personal={personalConsent} medical={medicalConsent} onPersonal={setPersonalConsent} onMedical={setMedicalConsent}/>
+            <Button label={busy ? "Записываем…" : "Подтвердить запись"} disabled={busy || !appointmentAt} onPress={() => request("appointment", appointmentAt)}/>
           </>}
         </ScrollView>
       </SafeAreaView>
     </Modal>
   </>;
+}
+
+function ConsentControls({ personal, medical, onPersonal, onMedical }: { personal: boolean; medical: boolean; onPersonal: (value: boolean) => void; onMedical: (value: boolean) => void }) {
+  const row = (checked: boolean, label: string, onChange: (value: boolean) => void) => <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onChange(!checked)} style={s.consentRow}>
+    <View style={[s.consentBox, checked && s.consentBoxChecked]}>{checked && <Ionicons name="checkmark" size={16} color={colors.white}/>}</View>
+    <Text style={s.consentLabel}>{label}</Text>
+  </Pressable>;
+  return <View style={s.consentGroup}>
+    {row(personal, "Согласие на обработку персональных данных", onPersonal)}
+    {row(medical, "Согласие на предоставление доступа к данным обследований", onMedical)}
+  </View>;
 }
 
 function Profile({ user, onUpdated, onLogout }: { user: User; onUpdated: (u: User) => void; onLogout: () => void }) {
@@ -1187,33 +1222,10 @@ function Detail({
 }) {
   const { width } = useWindowDimensions();
   const compact = width < 520;
-  const [doctors, setDoctors] = useState<User[]>([]);
-  const [doctor, setDoctor] = useState("");
-  const [question, setQuestion] = useState(
-    "Пожалуйста, прокомментируйте результаты анализа.",
-  );
-  const [exporting, setExporting] = useState<"email" | "share" | "print" | null>(null);
-  useEffect(() => {
-    if (item && user.role === "patient")
-      api
-        .doctors()
-        .then(setDoctors)
-        .catch(() => setDoctors([]));
-  }, [item, user.role]);
+  const [exporting, setExporting] = useState<"share" | "view" | "print" | null>(null);
   if (!item) return null;
   const active = item;
-  async function consult() {
-    if (!doctor) {
-      onError("Выберите врача.");
-      return;
-    }
-    try {
-      await api.consult(active.id, doctor, question);
-      onChanged();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : "Не удалось открыть доступ");
-    }
-  }
+  const review = [active.ai_review?.summary, ...(active.ai_review?.lifestyle || []), ...(active.ai_review?.nutrition || []), active.ai_review?.suggested_specialty ? `Рекомендуемый специалист: ${active.ai_review.suggested_specialty}` : ""].filter(Boolean).join("\n");
   async function nativeReport() {
     const result = await Print.printToFileAsync({
       html: analysisReportHTML(active),
@@ -1250,12 +1262,12 @@ function Detail({
     link.click();
     setTimeout(() => URL.revokeObjectURL(href), 1000);
   }
-  async function performReportAction(kind: "email" | "share" | "print") {
+  async function performReportAction(kind: "share" | "view" | "print") {
     if (exporting) return;
     setExporting(kind);
     try {
       if (Platform.OS === "web") {
-        if (kind === "print") {
+        if (kind === "print" || kind === "view") {
           await Linking.openURL(api.reportURL(active.id));
         } else {
           await shareWebReport();
@@ -1263,14 +1275,8 @@ function Detail({
         return;
       }
       const uri = await nativeReport();
-      if (kind === "email" && (await MailComposer.isAvailableAsync())) {
-        await MailComposer.composeAsync({
-          subject: `Результаты анализов: ${active.title}`,
-          body: "Во вложении итоговый PDF с распознанными показателями.",
-          attachments: [uri],
-        });
-      } else if (kind === "print") {
-        await Print.printAsync({ uri });
+      if (kind === "view") {
+        await Linking.openURL(uri);
       } else if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, {
           dialogTitle: `Передать ${active.title}`,
@@ -1315,37 +1321,24 @@ function Detail({
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={s.detailSection}>Показатели</Text>
             {active.markers.length ? (
               active.markers.map((m, i) => (
                 <View
                   key={`${m.name}-${i}`}
                   style={[
-                    s.marker,
-                    compact && s.markerCompact,
+                    s.markerTableRow,
+                    (m.status === "high" || m.status === "low") && s.markerTableRowAlert,
                   ]}
                 >
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.markerName}>{m.name}</Text>
-                    <Text style={s.analysisMeta}>
-                      {m.reference_text ||
+                  <Text numberOfLines={2} style={s.markerTableName}>{m.name}</Text>
+                  <Text numberOfLines={1} style={s.markerTableValue}>{m.value ?? m.text_value} {m.unit}</Text>
+                  <Text numberOfLines={2} style={s.markerTableReference}>
+                    {m.reference_text ||
                         [m.reference_min, m.reference_max]
                           .filter((x) => x !== undefined)
                           .join(" — ") ||
-                        "Референс не указан"}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      s.markerResult,
-                      compact && s.markerResultCompact,
-                    ]}
-                  >
-                    <Text style={s.markerValue}>
-                      {m.value ?? m.text_value} {m.unit}
-                    </Text>
-                    <Status value={m.status} />
-                  </View>
+                        "—"}
+                  </Text>
                 </View>
               ))
             ) : (
@@ -1355,73 +1348,10 @@ function Detail({
                 text="Проверьте качество снимка или добавьте более чёткий файл."
               />
             )}
-            {user.role === "patient" && (
-              <>
-                <Text style={s.detailSection}>Консультация врача</Text>
-                {doctors.length ? (
-                  <>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                    >
-                      {doctors.map((d) => (
-                        <Pressable
-                          key={d.id}
-                          onPress={() => setDoctor(d.id)}
-                          style={[
-                            s.doctorChip,
-                            doctor === d.id && s.doctorChipActive,
-                          ]}
-                        >
-                          <View style={s.smallAvatar}>
-                            <Text style={s.smallAvatarText}>
-                              {initials(d.full_name)}
-                            </Text>
-                          </View>
-                          <View>
-                            <Text style={s.doctorName}>{d.full_name}</Text>
-                            <Text style={s.analysisMeta}>
-                              {d.specialization}
-                            </Text>
-                          </View>
-                          {d.verified && (
-                            <Ionicons
-                              name="checkmark-circle"
-                              color={colors.brand}
-                              size={18}
-                            />
-                          )}
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                    <TextInput
-                      style={[s.input, s.replyInput]}
-                      multiline
-                      value={question}
-                      onChangeText={setQuestion}
-                    />
-                    <Button
-                      label="Открыть доступ и отправить запрос"
-                      onPress={consult}
-                    />
-                  </>
-                ) : (
-                  <Text style={s.cardHint}>
-                    Зарегистрированных врачей пока нет.
-                  </Text>
-                )}
-              </>
-            )}
           </ScrollView>
+          {compact && review ? <View style={s.detailSummaryBox}><Text numberOfLines={7} style={s.detailSummaryText}>{review}</Text></View> : null}
           <View style={s.detailFooter}>
             <View style={s.actionRow}>
-              <Action
-                icon="mail-outline"
-                label="По почте"
-                busy={exporting === "email"}
-                disabled={!!exporting}
-                onPress={() => void performReportAction("email")}
-              />
               <Action
                 icon="share-outline"
                 label="Передать"
@@ -1429,13 +1359,8 @@ function Detail({
                 disabled={!!exporting}
                 onPress={() => void performReportAction("share")}
               />
-              <Action
-                icon="print-outline"
-                label="Печать"
-                busy={exporting === "print"}
-                disabled={!!exporting}
-                onPress={() => void performReportAction("print")}
-              />
+              <Action icon="document-text-outline" label="Просмотр" busy={exporting === "view"} disabled={!!exporting} onPress={() => void performReportAction("view")}/>
+              {Platform.OS === "web" && !compact && <Action icon="print-outline" label="Печать" busy={exporting === "print"} disabled={!!exporting} onPress={() => void performReportAction("print")}/>}
             </View>
           </View>
         </View>
@@ -1765,6 +1690,7 @@ const date = (x: string) =>
 
 const s = StyleSheet.create({
   safe: { flex: 1, width: "100%", backgroundColor: colors.paper, overflow: "hidden" },
+  safeHome: { backgroundColor: "#17214B" },
   shell: { flex: 1, width: "100%", flexDirection: "row", overflow: "hidden" },
   main: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden" },
   content: { flex: 1, minWidth: 0, maxWidth: "100%" },
@@ -2321,6 +2247,8 @@ const s = StyleSheet.create({
     backgroundColor: colors.white,
     ...shadow,
   },
+  detailSummaryBox: { maxHeight: 144, marginHorizontal: 14, marginTop: 8, padding: 13, borderRadius: 17, backgroundColor: colors.violetSoft, borderWidth: 1, borderColor: "#DDD8F5" },
+  detailSummaryText: { color: colors.ink, fontSize: 12, lineHeight: 17 },
   iconButton: {
     width: 44,
     height: 44,
@@ -2367,6 +2295,11 @@ const s = StyleSheet.create({
   },
   markerName: { fontSize: 14, fontWeight: "600", color: colors.ink },
   markerValue: { fontSize: 15, fontWeight: "800", color: colors.ink },
+  markerTableRow: { minHeight: 45, paddingHorizontal: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.line, flexDirection: "row", alignItems: "center" },
+  markerTableRowAlert: { backgroundColor: colors.coralSoft, borderRadius: 10, borderBottomColor: "transparent" },
+  markerTableName: { width: "42%", paddingRight: 7, color: colors.ink, fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  markerTableValue: { width: "29%", textAlign: "center", color: colors.ink, fontSize: 13, fontWeight: "800" },
+  markerTableReference: { width: "29%", paddingLeft: 5, textAlign: "right", color: colors.muted, fontSize: 11, lineHeight: 15 },
   status: {
     paddingHorizontal: 8,
     paddingVertical: 5,
@@ -2646,6 +2579,16 @@ const s = StyleSheet.create({
   healthInfoButton: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.violetSoft, borderRadius: 18, padding: 14 },
   doctorProfileHero: { alignItems: "center", gap: 7, paddingVertical: 18 },
   doctorProfileActions: { gap: 10 },
+  consentGroup: { gap: 9, marginVertical: 2 },
+  consentRow: { minHeight: 48, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 11 },
+  consentBox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: colors.muted, backgroundColor: colors.white, alignItems: "center", justifyContent: "center" },
+  consentBoxChecked: { borderColor: colors.brand, backgroundColor: colors.brand },
+  consentLabel: { flex: 1, color: colors.ink, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  consentWarning: { position: "absolute", zIndex: 20, top: 10, left: 12, right: 12, maxWidth: 680, alignSelf: "center", padding: 15, borderRadius: 18, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.amberSoft, ...shadow },
+  consentWarningHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  consentWarningTitle: { color: colors.ink, fontSize: 15, fontWeight: "800" },
+  consentWarningText: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 7 },
+  consentWarningActions: { flexDirection: "row", justifyContent: "flex-end", gap: 9, marginTop: 11 },
   verifiedText: { color: colors.aqua, fontWeight: "800", fontSize: 12 },
   choiceWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   slotGroups: { flexDirection: "row", flexWrap: "wrap", gap: 9 },

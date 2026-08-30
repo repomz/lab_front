@@ -105,7 +105,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ analysisID, doctorID, question }),
     }),
-  requestDoctor: (value: { analysisID?: string; doctorID: string; question: string; serviceType: "consultation" | "appointment" | "home_visit"; appointmentAt?: string }) =>
+  requestDoctor: (value: { doctorID: string; question: string; serviceType: "consultation" | "appointment" | "home_visit"; appointmentAt?: string; personalDataConsent: boolean; medicalDataConsent: boolean }) =>
     request<Consultation>("/consultations", { method: "POST", body: JSON.stringify(value) }),
   aiConsult: (question: string) =>
     request<Consultation>("/consultations/ai", { method: "POST", body: JSON.stringify({ question }) }),
