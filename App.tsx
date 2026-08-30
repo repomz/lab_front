@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.7";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.8";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
 type AgeBand = "under20" | "20s" | "30s" | "40s" | "50s" | "60s" | "70s" | "80s";
 const activityImages: Record<AgeBand, number[]> = {
@@ -194,7 +194,7 @@ export default function App() {
     ) : tab === "guides" ? (
       <Guides />
     ) : user.role === "patient" ? (
-      <SupportChat onLogout={logout} />
+      <SupportChat onBack={() => setTab("home")} onLogout={logout} />
     ) : (
       <Profile
         user={user}
@@ -202,9 +202,10 @@ export default function App() {
         onLogout={logout}
       />
     );
-  const immersiveHeader = tab === "home" || (tab === "profile" && user.role === "patient");
+  const immersiveHeader = tab === "home";
+  const supportSurface = tab === "profile" && user.role === "patient";
   return (
-    <View style={[s.safe, immersiveHeader && s.safeHome]}>
+    <View style={[s.safe, immersiveHeader && s.safeHome, supportSurface && { backgroundColor: colors.white }]}>
       <StatusBar style={immersiveHeader ? "light" : "dark"} translucent backgroundColor="transparent" />
       <SafeAreaView style={s.safeInner}>
       <View style={s.shell}>
@@ -498,7 +499,7 @@ function Home({
             <Ionicons name="chevron-forward" size={18} color={colors.muted}/>
           </Pressable>
           {(upcoming || answered) && <View style={s.homeReminderList}>
-            {upcoming && <Pressable onPress={() => upcoming.doctor_id ? onOpenDoctor(upcoming.doctor_id) : onOpenVisit(upcoming)} style={s.homeReminder}><Ionicons name="calendar-outline" size={21} color={colors.violet}/><View style={{flex:1}}><Text style={s.homeReminderLabel}>Предстоящий приём</Text><Text numberOfLines={1} style={s.homeReminderText}>{new Date(upcoming.appointment_at!).toLocaleString("ru-RU", {day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</Text></View></Pressable>}
+            {upcoming && <Pressable onPress={() => upcoming.doctor_id ? onOpenDoctor(upcoming.doctor_id) : onOpenVisit(upcoming)} style={s.homeReminder}><Ionicons name="calendar-outline" size={21} color={colors.violet}/><View style={{flex:1}}><Text style={s.homeReminderLabel}>Приём</Text><Text numberOfLines={1} style={s.homeReminderText}>{new Date(upcoming.appointment_at!).toLocaleString("ru-RU", {day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</Text></View></Pressable>}
             {answered && <Pressable onPress={() => onOpenVisit(answered)} style={s.homeReminder}><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.aqua}/><View style={{flex:1}}><Text style={s.homeReminderLabel}>Ответ врача</Text><Text numberOfLines={1} style={s.homeReminderText}>Открыть переписку</Text></View></Pressable>}
           </View>}
         </View>
@@ -522,9 +523,10 @@ function WellnessPhotoCard({ ageBand, onPress }: { ageBand: AgeBand; onPress: ()
       setIndex((value) => (value + 1) % images.length);
       Animated.timing(opacity, { toValue: 1, duration: 1100, useNativeDriver: true }).start();
     });
-    const initial = setTimeout(rotate, 6000);
-    const timer = setInterval(rotate, 12000);
-    return () => { clearTimeout(initial); clearInterval(timer); opacity.stopAnimation(); };
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => { rotate(); timer = setTimeout(tick, 12000); };
+    timer = setTimeout(tick, 6000);
+    return () => { clearTimeout(timer); opacity.stopAnimation(); };
   }, [ageBand, images.length, opacity]);
   const source = images[index] || images[0]!;
   const copy: Record<AgeBand, [string, string]> = {
@@ -557,9 +559,10 @@ function NutritionMediaCard({ ageTone, onPress }: { ageTone: "young" | "middle" 
       setOffset((value) => (value + 1) % 3);
       Animated.timing(opacity, { toValue: 1, duration: 1100, useNativeDriver: true }).start();
     });
-    const initial = setTimeout(rotate, 12000);
-    const timer = setInterval(rotate, 12000);
-    return () => { clearTimeout(initial); clearInterval(timer); opacity.stopAnimation(); };
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => { rotate(); timer = setTimeout(tick, 12000); };
+    timer = setTimeout(tick, 12000);
+    return () => { clearTimeout(timer); opacity.stopAnimation(); };
   }, [opacity]);
   const image = nutritionImages[(base + offset) % 3];
   const subtitle = ageTone === "young" ? "Энергия, белок и регулярный режим" : ageTone === "middle" ? "Баланс, клетчатка и разумные порции" : "Простая питательная еда и достаточное питьё";
@@ -818,7 +821,7 @@ function Consultations({
   return <>
     <ScrollView contentContainerStyle={s.scroll}>
       {user.role === "patient" && <Pressable onPress={()=>setExpanded(true)} style={s.complaintPrompt}><View style={s.complaintIcon}><Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.violet}/></View><View style={{flex:1}}><Text style={s.complaintTitle}>Что вас беспокоит?</Text><Text style={s.complaintPlaceholder} numberOfLines={1}>Опишите или продиктуйте жалобы…</Text></View><Ionicons name="chevron-forward" size={21} color={colors.muted}/></Pressable>}
-      {data.length ? data.map(c=><Pressable key={c.id} onPress={()=>setSelected(c)} style={[s.consultRow,c.source==="ai"?s.aiConsultCard:s.doctorConsultCard]}><View style={[s.consultRowIcon,{backgroundColor:c.source==="ai"?"#EFEAFF":colors.mint}]}><Ionicons name={c.source==="ai"?"sparkles":"medkit-outline"} size={20} color={c.source==="ai"?colors.violet:colors.aqua}/></View><View style={{flex:1,minWidth:0}}><Text numberOfLines={1} style={s.analysisTitle}>{c.title||"Консультация"}</Text><Text style={s.analysisMeta}>{date(c.created_at)} · {c.status==="answered"?"есть ответ":"ожидает ответа"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>) : <Empty icon="chatbubbles-outline" title="Визитов пока нет" text="Здесь появятся ваши обращения, записи и ответы."/>}
+      {data.length ? <View style={s.consultList}>{data.map(c=><Pressable key={c.id} onPress={()=>setSelected(c)} style={[s.consultRow,c.source==="ai"?s.aiConsultCard:s.doctorConsultCard]}><View style={[s.consultRowIcon,{backgroundColor:c.source==="ai"?"#EFEAFF":colors.mint}]}><Ionicons name={c.source==="ai"?"sparkles":"medkit-outline"} size={20} color={c.source==="ai"?colors.violet:colors.aqua}/></View><View style={{flex:1,minWidth:0}}><Text numberOfLines={1} style={s.analysisTitle}>{c.title||"Консультация"}</Text><Text style={s.analysisMeta}>{date(c.created_at)} · {c.status==="answered"?"есть ответ":"ожидает ответа"}</Text></View></Pressable>)}</View> : <Empty icon="chatbubbles-outline" title="Визитов пока нет" text="Здесь появятся ваши обращения, записи и ответы."/>}
     </ScrollView>
     <Modal visible={expanded} animationType="slide" onRequestClose={()=>setExpanded(false)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable style={s.iconButton} onPress={()=>setExpanded(false)}><Ionicons name="arrow-back" size={24}/></Pressable><Text style={s.fullScreenTitle}>Новая консультация</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.fullScreenBody} keyboardShouldPersistTaps="handled"><TextInput autoFocus multiline style={[s.input,s.complaintInput,s.largeComposer]} placeholder="Когда появились симптомы, где болит, что усиливает или облегчает состояние…" value={question} onChangeText={setQuestion}/><Pressable onPress={dictate} style={[s.micButton,listening&&s.micButtonActive]}><Ionicons name={listening?"radio":"mic-outline"} size={22} color={listening?colors.white:colors.violet}/><Text style={[s.micText,listening&&{color:colors.white}]}>{listening?"Слушаю…":"Продиктовать"}</Text></Pressable><Button label={asking?"Анализируем…":"Получить ответ"} disabled={asking||!question.trim()} onPress={()=>void askAI()}/><Text style={s.aiDisclaimer}>Не заменяет врача. При экстренных симптомах вызывайте 112.</Text></ScrollView></SafeAreaView></Modal>
     <Modal visible={!!selected} animationType="slide" onRequestClose={closeSelected}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={closeSelected}><Ionicons name="arrow-back" size={24}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{selected?.title||"Консультация"}</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.fullScreenBody}><Text style={s.analysisMeta}>{selected?date(selected.created_at):""}</Text><View style={s.patientRecord}><Text style={s.replyLabel}>Ваш вопрос</Text><Text style={s.body}>{selected?.question}</Text></View>{selected?.reply?<View style={s.replyBox}><Text style={s.replyLabel}>{selected.source==="ai"?"Рекомендация":"Ответ врача"}</Text><Text style={s.body}>{selected.reply}</Text>{selected.specialty?<Text style={s.specialtyLine}>Специалист: {selected.specialty}</Text>:null}</View>:<Text style={s.cardHint}>Ответ ещё не получен.</Text>}</ScrollView></SafeAreaView></Modal>
@@ -1491,9 +1494,11 @@ function Detail({
   );
 }
 
-function SupportChat({ onLogout }: { onLogout: () => void }) {
+function SupportChat({ onBack, onLogout }: { onBack: () => void; onLogout: () => void }) {
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [textValue, setTextValue] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const listRef = useRef<React.ComponentRef<typeof NativeScrollView>>(null);
@@ -1516,16 +1521,14 @@ function SupportChat({ onLogout }: { onLogout: () => void }) {
       Alert.alert("Не удалось отправить", error instanceof Error ? error.message : "Ошибка");
     } finally { setBusy(false); }
   }
+  const visibleMessages = searchValue.trim() ? messages.filter((message) => message.text.toLocaleLowerCase("ru-RU").includes(searchValue.trim().toLocaleLowerCase("ru-RU"))) : messages;
   return <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={s.supportPage}>
-    <LinearGradient colors={["#17214B", "#3C3A86", "#147D83"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.supportHeader}>
-      <View style={s.supportIdentity}><View style={s.supportLogo}><Ionicons name="pulse" size={22} color={colors.white}/></View><View><Text style={s.supportTitle}>Поддержка Lab HEALTH</Text><Text style={s.supportOnline}>● На связи</Text></View></View>
-      <Pressable accessibilityRole="button" accessibilityLabel="Выйти" onPress={onLogout} style={s.supportLogout}><Ionicons name="log-out-outline" size={22} color={colors.white}/></Pressable>
-    </LinearGradient>
+    <View style={s.supportHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" onPress={onBack} style={s.supportHeaderButton}><Ionicons name="arrow-back" size={27} color={colors.ink}/></Pressable><Text style={s.supportTitle}>Чат с Lab HEALTH</Text><Pressable accessibilityRole="button" accessibilityLabel="Поиск по сообщениям" onPress={()=>setSearchOpen((value)=>!value)} style={s.supportHeaderButton}><Ionicons name={searchOpen?"close":"search"} size={26} color={colors.ink}/></Pressable></View>
+    {searchOpen && <View style={s.supportSearch}><Ionicons name="search" size={19} color={colors.muted}/><TextInput autoFocus style={s.supportSearchInput} placeholder="Поиск в чате" value={searchValue} onChangeText={setSearchValue}/></View>}
     <ScrollView ref={listRef} style={{flex:1}} contentContainerStyle={s.supportMessages} onContentSizeChange={() => listRef.current?.scrollToEnd({animated:false})}>
-      <View style={[s.messageBubble,s.assistantBubble,s.supportBubble]}><Text style={s.body}>Здравствуйте! Напишите, чем мы можем помочь с приложением, загрузкой анализов или доступом к данным.</Text></View>
-      {loading ? <ActivityIndicator color={colors.violet}/> : messages.map((message) => <View key={message.id} style={[s.messageBubble,message.sender === "patient" ? s.userBubble : s.assistantBubble,s.supportBubble]}><Text style={[s.body,message.sender === "patient" && {color:colors.white}]}>{message.text}</Text><Text style={[s.messageTime,message.sender === "patient" && {color:"#FFFFFFAA"}]}>{new Date(message.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}
+      {loading ? <ActivityIndicator color={colors.aqua}/> : !messages.length ? <View style={s.supportEmpty}><View style={s.supportMark}><View style={s.supportMarkBack}/><View style={s.supportMarkFront}><Ionicons name="chatbox-ellipses" size={54} color={colors.white}/></View></View><Text style={s.supportEmptyTitle}>Это чат с Lab HEALTH</Text><Text style={s.supportEmptyText}>Задайте вопрос о приложении, загрузке анализов или доступе к медицинским данным</Text><View style={s.supportTopics}><View style={s.supportTopic}><Ionicons name="document-text-outline" size={24} color={colors.aqua}/></View><View style={s.supportTopic}><Ionicons name="shield-checkmark-outline" size={24} color={colors.aqua}/></View><View style={s.supportTopic}><Ionicons name="help-circle-outline" size={25} color={colors.aqua}/></View></View><Pressable accessibilityRole="button" onPress={onLogout}><Text style={s.supportLogoutText}>Выйти из аккаунта</Text></Pressable></View> : visibleMessages.map((message) => <View key={message.id} style={[s.messageBubble,message.sender === "patient" ? s.userBubble : s.assistantBubble,s.supportBubble]}><Text style={[s.body,message.sender === "patient" && {color:colors.white}]}>{message.text}</Text><Text style={[s.messageTime,message.sender === "patient" && {color:"#FFFFFFAA"}]}>{new Date(message.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}
     </ScrollView>
-    <View style={s.chatComposer}><TextInput multiline maxLength={4000} style={s.chatInput} placeholder="Сообщение поддержке…" value={textValue} onChangeText={setTextValue}/><Pressable accessibilityRole="button" accessibilityLabel="Отправить" disabled={busy||!textValue.trim()} style={[s.sendButton,(busy||!textValue.trim())&&{opacity:.45}]} onPress={()=>void send()}>{busy?<ActivityIndicator size="small" color={colors.white}/>:<Ionicons name="arrow-up" size={22} color={colors.white}/>}</Pressable></View>
+    <View style={s.supportComposer}><View style={s.supportComposerIcon}><Ionicons name="chatbubble-ellipses-outline" size={25} color={colors.ink}/></View><TextInput multiline maxLength={4000} style={[s.chatInput,s.supportInput]} placeholder="Ваш вопрос" value={textValue} onChangeText={setTextValue}/><Pressable accessibilityRole="button" accessibilityLabel="Отправить" disabled={busy||!textValue.trim()} style={[s.sendButton,(busy||!textValue.trim())&&s.supportSendDisabled]} onPress={()=>void send()}>{busy?<ActivityIndicator size="small" color={colors.white}/>:<Ionicons name="arrow-up" size={22} color={colors.white}/>}</Pressable></View>
   </KeyboardAvoidingView>;
 }
 
@@ -2041,7 +2044,7 @@ const s = StyleSheet.create({
     gap: 15,
     borderWidth: 1,
     borderColor: colors.line,
-    width: "88%",
+    width: "100%",
     maxWidth: 540,
     ...shadow,
   },
@@ -2757,15 +2760,27 @@ const s = StyleSheet.create({
   chatComposer: { minHeight: 76, padding: 10, flexDirection: "row", alignItems: "flex-end", gap: 8, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.line },
   chatInput: { flex: 1, minWidth: 0, maxHeight: 120, minHeight: 48, borderRadius: 17, backgroundColor: colors.paper, paddingHorizontal: 15, paddingVertical: 12, color: colors.ink, fontSize: 16, lineHeight: 21 },
   sendButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.violet, alignItems: "center", justifyContent: "center" },
-  supportPage: { flex: 1, minHeight: 0, backgroundColor: colors.paper },
-  supportHeader: { minHeight: 82, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  supportIdentity: { flexDirection: "row", alignItems: "center", gap: 11 },
-  supportLogo: { width: 44, height: 44, borderRadius: 15, backgroundColor: "#FFFFFF20", alignItems: "center", justifyContent: "center" },
-  supportTitle: { color: colors.white, fontSize: 17, fontWeight: "800" },
-  supportOnline: { color: "#8BE4D4", fontSize: 11, fontWeight: "700", marginTop: 3 },
-  supportLogout: { width: 44, height: 44, borderRadius: 15, backgroundColor: "#FFFFFF18", alignItems: "center", justifyContent: "center" },
+  supportPage: { flex: 1, minHeight: 0, backgroundColor: colors.white },
+  supportHeader: { minHeight: 74, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.white },
+  supportHeaderButton: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  supportTitle: { flex: 1, color: colors.ink, fontSize: 20, fontWeight: "900" },
+  supportSearch: { marginHorizontal: 16, marginBottom: 8, minHeight: 48, paddingHorizontal: 14, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.paper },
+  supportSearchInput: { flex: 1, minWidth: 0, fontSize: 16, color: colors.ink, outlineStyle: "none" } as any,
   supportMessages: { flexGrow: 1, padding: 16, paddingBottom: 24, gap: 10, maxWidth: 900, width: "100%", alignSelf: "center", justifyContent: "flex-end" },
   supportBubble: { minWidth: 92 },
+  supportEmpty: { flex: 1, minHeight: 430, alignItems: "center", justifyContent: "center", paddingHorizontal: 22, paddingBottom: 18 },
+  supportMark: { width: 158, height: 132, marginBottom: 26 },
+  supportMarkBack: { position: "absolute", left: 8, top: 0, width: 98, height: 82, borderRadius: 27, backgroundColor: "#DDF6F8" },
+  supportMarkFront: { position: "absolute", right: 0, bottom: 0, width: 112, height: 88, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: colors.aqua, ...shadow },
+  supportEmptyTitle: { color: colors.ink, fontSize: 27, lineHeight: 34, fontWeight: "900", textAlign: "center" },
+  supportEmptyText: { maxWidth: 420, color: colors.muted, fontSize: 16, lineHeight: 23, textAlign: "center", marginTop: 10 },
+  supportTopics: { flexDirection: "row", gap: 12, marginTop: 22 },
+  supportTopic: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#EFF6F6" },
+  supportLogoutText: { color: colors.muted, fontSize: 12, fontWeight: "700", marginTop: 22 },
+  supportComposer: { minHeight: 76, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "flex-end", gap: 8, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: "#F0F2F2" },
+  supportComposerIcon: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F6F6" },
+  supportInput: { borderWidth: 1.5, borderColor: "#BAC7C8", backgroundColor: colors.white },
+  supportSendDisabled: { opacity: 0, width: 0, marginLeft: -8 },
   pdfViewerPage: { flex: 1, backgroundColor: colors.paper },
   nativePdfReturn: { flex: 1, padding: 28, alignItems: "center", justifyContent: "center", gap: 16 },
   guidePublished: { color: colors.aqua, fontSize: 10, fontWeight: "800", marginTop: 5 },
@@ -2791,7 +2806,8 @@ const s = StyleSheet.create({
   miniAction: { minHeight: 34, paddingHorizontal: 9, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: colors.blueSoft },
   miniActionText: { fontSize: 10, fontWeight: "800", color: colors.brand },
   doctorActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  consultRow: { minHeight: 64, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 11, borderRadius: 16, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  consultList: { gap: 7 },
+  consultRow: { minHeight: 58, paddingHorizontal: 11, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 15, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
   consultRowIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   pastCell: { backgroundColor: "#EEF0F3", opacity: .48 },
   healthInfoButton: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.violetSoft, borderRadius: 18, padding: 14 },
