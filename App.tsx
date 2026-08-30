@@ -29,7 +29,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.4";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.5";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
 type AgeBand = "under20" | "20s" | "30s" | "40s" | "50s" | "60s" | "70s" | "80s";
 const activityImages: Record<AgeBand, number[]> = {
@@ -149,6 +149,7 @@ export default function App() {
         compact={compact}
         user={user}
         analyses={analyses}
+        consultations={consultations}
         onOpen={setSelected}
         onTab={setTab}
         onUser={setUser}
@@ -191,7 +192,7 @@ export default function App() {
   const homeLanding = tab === "home" && user.role === "patient";
   return (
     <SafeAreaView style={[s.safe, homeLanding && s.safeHome]}>
-      <StatusBar style={homeLanding ? "light" : "dark"} />
+      <StatusBar style={homeLanding ? "light" : "dark"} translucent backgroundColor="transparent" />
       <View style={s.shell}>
         {desktop && <Sidebar user={user} tab={tab} onTab={setTab} />}
         <View style={s.main}>
@@ -269,7 +270,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   }
   return (
     <SafeAreaView style={[s.authPage, compact && s.authPageCompact]}>
-      <StatusBar style={compact ? "light" : "dark"} />
+      <StatusBar style={compact ? "light" : "dark"} translucent backgroundColor="transparent" />
       <LinearGradient
         colors={["#17214B", "#3D367A", "#146E78"]}
         start={{ x: 0, y: 0 }}
@@ -278,12 +279,15 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
       >
         <View style={s.authOrbOne} />
         <View style={s.authOrbTwo} />
+        <View style={[s.authLabSheet, s.authLabSheetOne]}><Ionicons name="document-text-outline" size={25} color="#B9C6FF"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:46}]}/><View style={[s.authLabLine,{width:30}]}/></View></View>
+        <View style={[s.authLabSheet, s.authLabSheetTwo]}><Ionicons name="flask-outline" size={25} color="#7DE0D5"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:38}]}/></View></View>
+        <View style={s.authMedicalCross}><Ionicons name="medical" size={21} color="#FFFFFFB8"/></View>
         <Text style={s.authVersion}>LAB HEALTH · v{APP_VERSION}</Text>
         <View style={[s.logo, compact && { marginTop: 32 }]}>
           <Ionicons name="pulse" size={26} color={colors.white} />
         </View>
         <Text style={[s.authHero, compact && s.authHeroCompact]}>
-          Все результаты здоровья — в одной понятной истории.
+          Твои анализы собраны. Здоровье — под контролем.
         </Text>
         {!compact && (
           <Text style={s.authSub}>
@@ -429,6 +433,7 @@ function Home({
   compact,
   user,
   analyses,
+  consultations,
   onOpen,
   onTab,
   onUser,
@@ -436,6 +441,7 @@ function Home({
   compact: boolean;
   user: User;
   analyses: Analysis[];
+  consultations: Consultation[];
   onOpen: (a: Analysis) => void;
   onTab: (t: Tab) => void;
   onUser: (u: User) => void;
@@ -444,6 +450,10 @@ function Home({
   const age = user.patient_profile?.age || 35;
   const ageTone = age < 40 ? "young" : age < 65 ? "middle" : "senior";
   const ageGroup = activityBand(age);
+  const latest = analyses[0];
+  const latestNeedsAttention = !!latest && (latest.ai_review?.doctor_needed || latest.markers.some((marker) => marker.status === "high" || marker.status === "low"));
+  const upcoming = consultations.filter((item) => item.service_type === "appointment" && item.appointment_at && new Date(item.appointment_at) > new Date()).sort((a, b) => (a.appointment_at || "").localeCompare(b.appointment_at || ""))[0];
+  const answered = consultations.find((item) => item.status === "answered" && item.reply);
   if (user.role === "doctor") {
     return <DoctorSchedule user={user} compact={compact} />;
   }
@@ -456,14 +466,23 @@ function Home({
         style={[s.patientWelcome, compact && s.patientWelcomeCompact]}
       >
         <View>
-          <Text style={s.welcomeOver}>ВАШ ПЕРСОНАЛЬНЫЙ ПЛАН</Text>
           <Text style={[s.welcomeTitle, compact && s.welcomeTitleCompact]}>
             Здравствуйте, {firstName(user.full_name)}
           </Text>
-          <Text style={[s.welcomeText, compact && s.welcomeTextCompact]}>{user.patient_profile ? `${age} лет · ИМТ ${user.patient_profile.bmi}` : "Заполните возраст, рост и вес в профиле"}</Text>
         </View>
       </LinearGradient>
       <View style={[s.homeDiscovery, compact && s.homeDiscoveryCompact]}>
+        <View style={s.homeUpdates}>
+          <Pressable onPress={() => onTab("analyses")} style={[s.homeUpdateMain, latestNeedsAttention && s.homeUpdateAlert]}>
+            <View style={[s.homeUpdateIcon, latestNeedsAttention && s.homeUpdateIconAlert]}><Ionicons name={latestNeedsAttention ? "alert-circle-outline" : "heart-outline"} size={20} color={latestNeedsAttention ? colors.coral : colors.aqua}/></View>
+            <View style={{flex:1}}><Text style={s.homeUpdateTitle}>{!latest ? "Добавьте первый анализ" : latestNeedsAttention ? "Обратите внимание на последние анализы" : "Ваши последние показатели выглядят хорошо"}</Text><Text numberOfLines={1} style={s.homeUpdateText}>{!latest ? "Соберите историю здоровья в одном месте" : latestNeedsAttention ? "Откройте информацию о состоянии и рекомендации" : "Так держать — продолжайте заботиться о себе"}</Text></View>
+            <Ionicons name="chevron-forward" size={18} color={colors.muted}/>
+          </Pressable>
+          {(upcoming || answered) && <View style={s.homeReminderList}>
+            {upcoming && <Pressable onPress={() => onTab("consultations")} style={s.homeReminder}><Ionicons name="calendar-outline" size={17} color={colors.violet}/><Text numberOfLines={1} style={s.homeReminderText}>Приём {new Date(upcoming.appointment_at!).toLocaleString("ru-RU", {day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</Text></Pressable>}
+            {answered && <Pressable onPress={() => onTab("consultations")} style={s.homeReminder}><Ionicons name="chatbubble-ellipses-outline" size={17} color={colors.aqua}/><Text numberOfLines={1} style={s.homeReminderText}>Получен новый ответ врача</Text></Pressable>}
+          </View>}
+        </View>
         <WellnessPhotoCard ageBand={ageGroup} onPress={() => setWellness("activity")} />
         <NutritionMediaCard ageTone={ageTone} onPress={() => setWellness("nutrition")} />
       </View>
@@ -594,23 +613,9 @@ function Analyses({
   const series = useMemo(() => data.flatMap((analysis) => analysis.markers.filter((item) => item.name === marker && item.value !== undefined).map((item) => ({ date: analysis.created_at, value: item.value!, unit: item.unit || "", status: item.status }))).sort((a, b) => a.date.localeCompare(b.date)), [data, marker]);
   const overall = data.find((analysis) => analysis.ai_review?.doctor_needed)?.ai_review || data[0]?.ai_review;
   return (
-    <ScrollView contentContainerStyle={[s.scroll, compact && s.scrollCompact]}>
-      <View style={[s.rowBetween, compact && s.analysesIntroCompact]}>
-        <Text style={s.sectionIntro}>
-          {doctor
-            ? "Доступ предоставлен пациентами"
-            : "Документы и унифицированные показатели"}
-        </Text>
-        {!doctor && (
-          <Button
-            label="Загрузить"
-            icon="cloud-upload-outline"
-            compact
-            onPress={onUpload}
-          />
-        )}
-      </View>
-      {!doctor && data.length > 0 && overall ? <Pressable onPress={()=>setInfoOpen(true)} style={[s.healthInfoButton,overall.doctor_needed&&s.healthSummaryAlert]}><View style={s.healthSummaryHead}><Ionicons name={overall.doctor_needed?"medical-outline":"sparkles-outline"} size={22} color={overall.doctor_needed?colors.coral:colors.violet}/><View style={{flex:1}}><Text style={s.reviewTitle}>Информация о вашем состоянии</Text><Text style={s.analysisMeta}>Сводка по результатам и динамике показателей</Text></View><Ionicons name="chevron-forward" size={21} color={colors.muted}/></View></Pressable>:null}
+    <View style={s.analysisPage}>
+    <ScrollView contentContainerStyle={[s.scroll, s.analysisScrollContent, compact && s.scrollCompact]}>
+      {!doctor ? <Pressable disabled={!overall} onPress={()=>setInfoOpen(true)} style={[s.healthInfoButton,overall?.doctor_needed&&s.healthSummaryAlert]}><View style={s.healthSummaryHead}><Ionicons name={overall?.doctor_needed?"medical-outline":"sparkles-outline"} size={22} color={overall?.doctor_needed?colors.coral:colors.violet}/><View style={{flex:1}}><Text style={s.reviewTitle}>Информация о вашем состоянии</Text><Text style={s.analysisMeta}>{overall ? "Сводка по результатам и динамике показателей" : "Появится после первого распознавания"}</Text></View>{overall && <Ionicons name="chevron-forward" size={21} color={colors.muted}/>}</View></Pressable>:null}
       {!doctor && <View style={s.segment}><Segment active={mode === "research"} label="Исследования" icon="documents-outline" onPress={() => setMode("research")} /><Segment active={mode === "dynamics"} label="Динамика" icon="stats-chart-outline" onPress={() => setMode("dynamics")} /></View>}
       {data.length && (doctor || mode === "research") ? (
         <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View><View style={s.compactCardGrid}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} onPress={() => onOpen(analysis)} onDelete={onDelete ? () => onDelete(analysis) : undefined} />)}</View></View>)}</View>
@@ -629,6 +634,8 @@ function Analyses({
       )}
       <Modal visible={infoOpen} animationType="slide" onRequestClose={()=>setInfoOpen(false)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable style={s.iconButton} onPress={()=>setInfoOpen(false)}><Ionicons name="arrow-back" size={25}/></Pressable><Text style={s.fullScreenTitle}>Ваше состояние</Text><View style={s.iconButton}/></View><ScrollView contentContainerStyle={s.fullScreenBody}>{data.map((analysis)=><View key={analysis.id} style={s.aiRecommendation}><View style={s.rowBetween}><Text style={s.reviewTitle}>{analysis.title}</Text><Text style={s.analysisMeta}>{date(analysis.created_at)}</Text></View><Text style={s.body}>{analysis.ai_review?.summary||"Автоматическая сводка отсутствует."}</Text>{analysis.ai_review?.lifestyle?.map((x,i)=><Text key={`l-${i}`} style={s.body}>• {x}</Text>)}{analysis.ai_review?.nutrition?.map((x,i)=><Text key={`n-${i}`} style={s.body}>• {x}</Text>)}{analysis.ai_review?.suggested_specialty?<Text style={s.specialtyLine}>Обсудить со специалистом: {analysis.ai_review.suggested_specialty}</Text>:null}</View>)}<Text style={s.aiDisclaimer}>Информация сформирована автоматически по распознанным данным и не является диагнозом. Сверяйте значения с оригинальными бланками.</Text></ScrollView></SafeAreaView></Modal>
     </ScrollView>
+    {!doctor && <View style={s.uploadDock}><Button label="Загрузить анализ" icon="cloud-upload-outline" onPress={onUpload}/></View>}
+    </View>
   );
 }
 
@@ -659,10 +666,7 @@ function AnalysisCard({
       onPress={onPress}
     >
       <View style={{ flex: 1 }}>
-        <Text style={s.analysisTitle} numberOfLines={1}>
-          {item.title}
-        </Text>
-        <Text style={s.analysisMeta}>{date(item.created_at)}</Text>
+        <Text style={s.analysisTitle}>{date(item.created_at)}</Text>
       </View>
       <View style={s.analysisCardActions}>
         {onDelete && (
@@ -682,7 +686,6 @@ function AnalysisCard({
             <Ionicons name="trash-outline" size={20} color={colors.coral} />
           </Pressable>
         )}
-        <Ionicons name="chevron-forward" size={20} color={colors.muted} />
       </View>
     </Pressable>
   );
@@ -761,7 +764,7 @@ function DoctorPatients({ patientsAnalyses, consultations, onOpen, onRefresh }: 
   async function save(){if(!selectedPatient||!note.trim())return;setBusy(true);try{await api.addPatientNote(selectedPatient.id,note.trim());setNote("");setNotes(await api.patientNotes(selectedPatient.id))}catch(e){Alert.alert("Не удалось сохранить",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
   async function generateAI(){if(!selectedPatient)return;setAIBusy(true);try{setAI(await api.clinicalAssist({patientID:selectedPatient.id,objective:"",clinical:"Оцени доступные анализы и вопросы пациента. Дай структурированное резюме, красные флаги, обследования и тактику для врача."}))}catch(e){Alert.alert("AI недоступен",e instanceof Error?e.message:"Ошибка")}finally{setAIBusy(false)}}
   async function replyTo(c:Consultation){const text=answer[c.id]?.trim();if(!text)return;setBusy(true);try{await api.reply(c.id,text);setAnswer({...answer,[c.id]:""});onRefresh()}catch(e){Alert.alert("Ответ не отправлен",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
-  return <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">{!selectedPatient?<><View style={s.doctorGrid}>{patients.map(p=><Pressable key={p.id} style={s.doctorDirectoryCard} onPress={()=>setSelectedPatient(p)}><AvatarView user={p} size={46}/><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{p.full_name}</Text><Text style={s.specialtyLine}>{p.patient_profile?`${p.patient_profile.age} лет · ИМТ ${p.patient_profile.bmi}`:"Профиль не заполнен"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>)}</View>{!patients.length&&<Empty icon="people-outline" title="Пациентов пока нет" text="Пациент появится после записи или запроса услуги."/>}</>:<><Pressable style={s.backLink} onPress={()=>{setSelectedPatient(null);setAI(null)}}><Ionicons name="arrow-back" size={18} color={colors.brand}/><Text style={s.link}>Все пациенты</Text></Pressable><View style={s.patientRecord}><Text style={s.eyebrow}>КАРТА ПАЦИЕНТА</Text><Text style={s.cardTitle}>{selectedPatient.full_name}</Text>{selectedPatient.patient_profile&&<Text style={s.analysisMeta}>{selectedPatient.patient_profile.age} лет · {selectedPatient.patient_profile.height_cm} см · {selectedPatient.patient_profile.weight_kg} кг · ИМТ {selectedPatient.patient_profile.bmi}</Text>}</View><Text style={s.surveyTitle}>Анализы</Text><View style={s.compactCardGrid}>{patientAnalyses.map(a=><AnalysisCard key={a.id} item={a} onPress={()=>onOpen(a)}/>)}</View>{!patientAnalyses.length&&<Text style={s.cardHint}>Нет открытых врачу исследований.</Text>}<Text style={s.surveyTitle}>Вопросы пациента</Text>{requests.map(c=><View key={c.id} style={s.noteCard}><View style={s.rowBetween}><Text style={s.replyLabel}>{c.title||"Консультация"}</Text><Text style={s.analysisMeta}>{date(c.created_at)}</Text></View><Text style={s.body}>{c.question}</Text>{c.reply?<View style={s.replyBox}><Text style={s.replyLabel}>Ваш ответ</Text><Text style={s.body}>{c.reply}</Text></View>:<><TextInput multiline style={[s.input,s.replyInput]} placeholder="Ответ пациенту…" value={answer[c.id]||""} onChangeText={v=>setAnswer({...answer,[c.id]:v})}/><View style={s.complaintActions}><Pressable style={s.micButton} onPress={()=>{const setter:React.Dispatch<React.SetStateAction<string>>=value=>setAnswer(current=>({...current,[c.id]:typeof value==="function"?value(current[c.id]||""):value}));startDictation(setter,setListening)}}><Ionicons name="mic-outline" size={20} color={colors.violet}/></Pressable><Button compact disabled={busy||!answer[c.id]?.trim()} label="Ответить" onPress={()=>void replyTo(c)}/></View></>}</View>)}{!requests.length&&<Text style={s.cardHint}>Новых вопросов нет.</Text>}<View style={s.rowBetween}><Text style={s.surveyTitle}>Резюме AI</Text><Button compact label={aiBusy?"Анализ…":ai?"Обновить":"Сформировать"} disabled={aiBusy} onPress={()=>void generateAI()}/></View>{ai&&<View style={s.aiSummaryCard}><Text style={s.body}>{ai.assessment}</Text><AIList title="Красные флаги" items={ai.red_flags}/><AIList title="Что проверить" items={ai.suggested_checks}/><AIList title="Тактика" items={ai.tactics}/><AIList title="Источники" items={ai.guideline_refs}/><Text style={s.aiDisclaimer}>{ai.limitations}</Text></View>}<View style={s.noteComposer}><Text style={s.surveyTitle}>Заключение в карту</Text><TextInput multiline style={[s.input,s.noteInput]} placeholder="Заключение, рекомендации и дальнейшая тактика…" value={note} onChangeText={setNote}/><View style={s.complaintActions}><Pressable style={[s.micButton,listening&&s.micButtonActive]} onPress={()=>startDictation(setNote,setListening)}><Ionicons name={listening?"radio":"mic-outline"} size={21} color={listening?colors.white:colors.violet}/><Text style={[s.micText,listening&&{color:colors.white}]}>{listening?"Слушаю…":"Продиктовать"}</Text></Pressable><Button compact disabled={busy||!note.trim()} label={busy?"Сохраняем…":"Сохранить"} onPress={()=>void save()}/></View></View>{notes.map(n=><View key={n.id} style={s.noteCard}><View style={s.rowBetween}><Text style={s.replyLabel}>Заключение</Text><Text style={s.analysisMeta}>{date(n.created_at)}</Text></View><Text style={s.body}>{n.text}</Text></View>)}</>}</ScrollView>
+  return <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">{!selectedPatient?<><View style={s.doctorGrid}>{patients.map(p=><Pressable key={p.id} style={s.doctorDirectoryCard} onPress={()=>setSelectedPatient(p)}><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{p.full_name}</Text><Text style={s.specialtyLine}>{p.patient_profile?`${p.patient_profile.age} лет · ИМТ ${p.patient_profile.bmi}`:"Профиль не заполнен"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>)}</View>{!patients.length&&<Empty icon="people-outline" title="Пациентов пока нет" text="Пациент появится после записи или запроса услуги."/>}</>:<><Pressable style={s.backLink} onPress={()=>{setSelectedPatient(null);setAI(null)}}><Ionicons name="arrow-back" size={18} color={colors.brand}/><Text style={s.link}>Все пациенты</Text></Pressable><View style={s.patientRecord}><Text style={s.eyebrow}>КАРТА ПАЦИЕНТА</Text><Text style={s.cardTitle}>{selectedPatient.full_name}</Text>{selectedPatient.patient_profile&&<Text style={s.analysisMeta}>{selectedPatient.patient_profile.age} лет · {selectedPatient.patient_profile.height_cm} см · {selectedPatient.patient_profile.weight_kg} кг · ИМТ {selectedPatient.patient_profile.bmi}</Text>}</View><Text style={s.surveyTitle}>Анализы</Text><View style={s.compactCardGrid}>{patientAnalyses.map(a=><AnalysisCard key={a.id} item={a} onPress={()=>onOpen(a)}/>)}</View>{!patientAnalyses.length&&<Text style={s.cardHint}>Нет открытых врачу исследований.</Text>}<Text style={s.surveyTitle}>Вопросы пациента</Text>{requests.map(c=><View key={c.id} style={s.noteCard}><View style={s.rowBetween}><Text style={s.replyLabel}>{c.title||"Консультация"}</Text><Text style={s.analysisMeta}>{date(c.created_at)}</Text></View><Text style={s.body}>{c.question}</Text>{c.reply?<View style={s.replyBox}><Text style={s.replyLabel}>Ваш ответ</Text><Text style={s.body}>{c.reply}</Text></View>:<><TextInput multiline style={[s.input,s.replyInput]} placeholder="Ответ пациенту…" value={answer[c.id]||""} onChangeText={v=>setAnswer({...answer,[c.id]:v})}/><View style={s.complaintActions}><Pressable style={s.micButton} onPress={()=>{const setter:React.Dispatch<React.SetStateAction<string>>=value=>setAnswer(current=>({...current,[c.id]:typeof value==="function"?value(current[c.id]||""):value}));startDictation(setter,setListening)}}><Ionicons name="mic-outline" size={20} color={colors.violet}/></Pressable><Button compact disabled={busy||!answer[c.id]?.trim()} label="Ответить" onPress={()=>void replyTo(c)}/></View></>}</View>)}{!requests.length&&<Text style={s.cardHint}>Новых вопросов нет.</Text>}<View style={s.rowBetween}><Text style={s.surveyTitle}>Резюме AI</Text><Button compact label={aiBusy?"Анализ…":ai?"Обновить":"Сформировать"} disabled={aiBusy} onPress={()=>void generateAI()}/></View>{ai&&<View style={s.aiSummaryCard}><Text style={s.body}>{ai.assessment}</Text><AIList title="Красные флаги" items={ai.red_flags}/><AIList title="Что проверить" items={ai.suggested_checks}/><AIList title="Тактика" items={ai.tactics}/><AIList title="Источники" items={ai.guideline_refs}/><Text style={s.aiDisclaimer}>{ai.limitations}</Text></View>}<View style={s.noteComposer}><Text style={s.surveyTitle}>Заключение в карту</Text><TextInput multiline style={[s.input,s.noteInput]} placeholder="Заключение, рекомендации и дальнейшая тактика…" value={note} onChangeText={setNote}/><View style={s.complaintActions}><Pressable style={[s.micButton,listening&&s.micButtonActive]} onPress={()=>startDictation(setNote,setListening)}><Ionicons name={listening?"radio":"mic-outline"} size={21} color={listening?colors.white:colors.violet}/><Text style={[s.micText,listening&&{color:colors.white}]}>{listening?"Слушаю…":"Продиктовать"}</Text></Pressable><Button compact disabled={busy||!note.trim()} label={busy?"Сохраняем…":"Сохранить"} onPress={()=>void save()}/></View></View>{notes.map(n=><View key={n.id} style={s.noteCard}><View style={s.rowBetween}><Text style={s.replyLabel}>Заключение</Text><Text style={s.analysisMeta}>{date(n.created_at)}</Text></View><Text style={s.body}>{n.text}</Text></View>)}</>}</ScrollView>
 }
 
 function AIWorkspace(){const [chats,setChats]=useState<AIChat[]>([]);const [active,setActive]=useState<AIChat|null>(null);const [message,setMessage]=useState("");const [title,setTitle]=useState("");const [busy,setBusy]=useState(false);const [listening,setListening]=useState(false);const load=()=>api.aiChats().then(setChats).catch(()=>setChats([]));useEffect(()=>{void load()},[]);async function open(chat:AIChat){setActive(await api.aiChat(chat.id));setTitle(chat.title)}async function create(){const c=await api.createAIChat();setActive(c);setTitle(c.title);void load()}async function send(){if(!active||!message.trim())return;const text=message.trim();setMessage("");setBusy(true);try{await api.aiMessage(active.id,text);setActive(await api.aiChat(active.id));void load()}catch(e){setMessage(text);Alert.alert("AI недоступен",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}async function rename(){if(active&&title.trim()){await api.renameAIChat(active.id,title.trim());setActive({...active,title:title.trim()});void load()}}async function remove(){if(!active)return;await api.deleteAIChat(active.id);setActive(null);void load()}
@@ -877,14 +880,20 @@ function DoctorsScreen({ user, onRefresh }: { user: User; onRefresh: () => void 
 }
 
 function ConsentControls({ personal, medical, onPersonal, onMedical }: { personal: boolean; medical: boolean; onPersonal: (value: boolean) => void; onMedical: (value: boolean) => void }) {
-  const row = (checked: boolean, label: string, onChange: (value: boolean) => void) => <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onChange(!checked)} style={s.consentRow}>
-    <View style={[s.consentBox, checked && s.consentBoxChecked]}>{checked && <Ionicons name="checkmark" size={16} color={colors.white}/>}</View>
-    <Text style={s.consentLabel}>{label}</Text>
-  </Pressable>;
-  return <View style={s.consentGroup}>
-    {row(personal, "Согласие на обработку персональных данных", onPersonal)}
-    {row(medical, "Согласие на предоставление доступа к данным обследований", onMedical)}
+  const [legal, setLegal] = useState<"personal" | "medical" | null>(null);
+  const row = (kind: "personal" | "medical", checked: boolean, label: string, onChange: (value: boolean) => void) => <View style={s.consentRow}>
+    <Pressable accessibilityRole="checkbox" accessibilityLabel={`Отметить: ${label}`} accessibilityState={{ checked }} hitSlop={8} onPress={() => onChange(!checked)} style={[s.consentBox, checked && s.consentBoxChecked]}>{checked && <Ionicons name="checkmark" size={16} color={colors.white}/>}</Pressable>
+    <Pressable accessibilityRole="button" onPress={() => setLegal(kind)} style={s.consentTextButton}><Text style={s.consentLabel}>{label}</Text><Text style={s.consentOpen}>Открыть полный текст</Text></Pressable>
   </View>;
+  const personalText = "Настоящим я свободно, своей волей и в своём интересе даю оператору приложения Lab Health согласие на обработку моих персональных данных в соответствии с Федеральным законом № 152-ФЗ «О персональных данных».\n\nПеречень данных: фамилия, имя и отчество (если указаны), возраст, контактные и регистрационные данные, сведения профиля, история обращений, записи на приём и технические сведения, необходимые для работы учётной записи.\n\nЦели обработки: регистрация и идентификация пользователя, организация записи и консультаций, отображение информации выбранному пользователем врачу, обеспечение безопасности и исполнение запросов пользователя.\n\nРазрешённые действия: сбор, запись, систематизация, накопление, хранение, уточнение, извлечение, использование, предоставление выбранному врачу, блокирование и удаление. Обработка может выполняться с использованием средств автоматизации.\n\nСогласие действует до достижения указанных целей либо до его отзыва. Я вправе отозвать согласие обращением к оператору. Отзыв не отменяет обработку, допустимую или обязательную по закону. Я подтверждаю, что согласие является конкретным, предметным, информированным, сознательным и однозначным.";
+  const medicalText = "Настоящим я даю согласие на предоставление выбранному мною врачу доступа к сведениям о состоянии здоровья, составляющим врачебную тайну, в соответствии со статьёй 13 Федерального закона № 323-ФЗ «Об основах охраны здоровья граждан в Российской Федерации».\n\nДоступ включает загруженные лабораторные анализы и иные обследования, распознанные показатели, исходные документы, историю показателей и сформированные по ним резюме.\n\nЦель доступа: рассмотрение моего запроса на консультацию или запись, подготовка врачом ответа, заключения и рекомендаций. Доступ предоставляется только выбранному врачу и не означает разрешение на распространение сведений неопределённому кругу лиц.\n\nЯ понимаю, что при отсутствии этого согласия врач не увидит мои анализы и обследования. Согласие действует до отзыва либо прекращения целей предоставления доступа. Я могу отозвать его через обращение к оператору; ранее совершённые на законном основании действия остаются правомерными.";
+  return <>
+    <View style={s.consentGroup}>
+      {row("personal", personal, "Согласие на обработку персональных данных", onPersonal)}
+      {row("medical", medical, "Согласие на предоставление доступа к данным обследований", onMedical)}
+    </View>
+    <Modal visible={!!legal} animationType="slide" onRequestClose={() => setLegal(null)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityLabel="Назад" style={s.iconButton} onPress={() => setLegal(null)}><Ionicons name="arrow-back" size={24}/></Pressable><Text numberOfLines={2} style={s.fullScreenTitle}>{legal === "medical" ? "Доступ к данным обследований" : "Обработка персональных данных"}</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.legalBody}><Text selectable style={s.legalText}>{legal === "medical" ? medicalText : personalText}</Text></ScrollView></SafeAreaView></Modal>
+  </>;
 }
 
 function Profile({ user, onUpdated, onLogout }: { user: User; onUpdated: (u: User) => void; onLogout: () => void }) {
@@ -899,7 +908,6 @@ function Profile({ user, onUpdated, onLogout }: { user: User; onUpdated: (u: Use
     const result=source==="camera"?await ImagePicker.launchCameraAsync({mediaTypes:["images"],quality:.85,allowsEditing:true,aspect:[1,1]}):await ImagePicker.launchImageLibraryAsync({mediaTypes:["images"],quality:.85,allowsEditing:true,aspect:[1,1]});
     if(result.canceled)return;const x=result.assets[0];if(!x)return;setBusy(true);try{onUpdated(await api.uploadAvatar({uri:x.uri,name:x.fileName||`avatar-${Date.now()}.jpg`,mimeType:x.mimeType||"image/jpeg",file:x.file}))}catch(e){Alert.alert("Фото не загружено",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}
   }
-  async function usePreset(preset:string){setBusy(true);try{onUpdated(await api.avatarPreset(preset))}catch(e){Alert.alert("Аватар не изменён",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
   async function saveProfile() {
     setBusy(true);
     try { const updated = await api.updatePatientProfile({ age: Number(age), heightCM: Number(height), weightKG: Number(weight), activity: profile?.activity || { regular_sport: false }, nutrition: profile?.nutrition || {} }); onUpdated(updated); }
@@ -909,13 +917,12 @@ function Profile({ user, onUpdated, onLogout }: { user: User; onUpdated: (u: Use
   return (
     <ScrollView contentContainerStyle={s.scroll}>
       <LinearGradient colors={["#192659","#4C3F91","#13858A"]} style={s.profileHero}>
-        <AvatarView user={user} size={92}/><Text style={s.profileHeroName}>{user.full_name}</Text><Text style={s.profileHeroMeta}>{user.role==="doctor"?user.specialization:"Пациент"}</Text>
+        {user.role === "doctor" && <AvatarView user={user} size={92}/>}<Text style={s.profileHeroName}>{user.full_name}</Text><Text style={s.profileHeroMeta}>{user.role==="doctor"?user.specialization:"Пациент"}</Text>
       </LinearGradient>
       <View style={s.profileCard}>
-        <Text style={s.surveyTitle}>Фото профиля</Text><View style={s.profilePhotoActions}><MiniAction label="Камера" icon="camera-outline" onPress={()=>void chooseAvatar("camera")}/><MiniAction label="Галерея" icon="images-outline" onPress={()=>void chooseAvatar("gallery")}/></View>
-        {user.role==="patient"&&<><Text style={s.label}>Или выберите аватар</Text><View style={s.presetRow}>{["person","leaf","heart","sun"].map(p=><Pressable key={p} onPress={()=>void usePreset(p)} style={[s.presetButton,user.avatar_preset===p&&s.presetButtonActive]}><Ionicons name={(p==="person"?"person":p==="leaf"?"leaf":p==="heart"?"heart":"sunny") as keyof typeof Ionicons.glyphMap} size={23} color={user.avatar_preset===p?colors.white:colors.violet}/></Pressable>)}</View></>}
+        {user.role === "doctor" && <><Text style={s.surveyTitle}>Фото профиля</Text><View style={s.profilePhotoActions}><MiniAction label="Камера" icon="camera-outline" onPress={()=>void chooseAvatar("camera")}/><MiniAction label="Галерея" icon="images-outline" onPress={()=>void chooseAvatar("gallery")}/></View></>}
         {user.role === "patient" && <View style={s.profileVitals}><Text style={s.surveyTitle}>Показатели профиля</Text><View style={s.registrationVitals}><Field label="Возраст" keyboardType="number-pad" value={age} onChangeText={setAge} /><Field label="Рост, см" keyboardType="decimal-pad" value={height} onChangeText={setHeight} /><Field label="Вес, кг" keyboardType="decimal-pad" value={weight} onChangeText={setWeight} /></View>{profile ? <View style={s.bmiCard}><Text style={s.bmiValue}>ИМТ {profile.bmi}</Text><Text style={s.analysisMeta}>Используется только для персонализации рекомендаций, не как диагноз.</Text></View> : null}<Button label={busy ? "Сохраняем…" : "Сохранить профиль"} compact disabled={busy} onPress={() => void saveProfile()} /></View>}
-        <Text style={s.profileName}>{user.full_name}</Text><Text style={s.cardHint}>{user.email}</Text>
+        <Text style={s.cardHint}>{user.email}</Text>
         <View style={s.roleBadge}>
           <Text style={s.roleText}>
             {user.role === "doctor"
@@ -1225,7 +1232,7 @@ function Detail({
   const [exporting, setExporting] = useState<"share" | "view" | "print" | null>(null);
   if (!item) return null;
   const active = item;
-  const review = [active.ai_review?.summary, ...(active.ai_review?.lifestyle || []), ...(active.ai_review?.nutrition || []), active.ai_review?.suggested_specialty ? `Рекомендуемый специалист: ${active.ai_review.suggested_specialty}` : ""].filter(Boolean).join("\n");
+  const review = active.ai_review?.summary || "";
   async function nativeReport() {
     const result = await Print.printToFileAsync({
       html: analysisReportHTML(active),
@@ -1880,6 +1887,8 @@ const s = StyleSheet.create({
     gap: 15,
     borderWidth: 1,
     borderColor: colors.line,
+    width: "88%",
+    maxWidth: 540,
     ...shadow,
   },
   analysisCardReady: {
@@ -1924,9 +1933,9 @@ const s = StyleSheet.create({
     color: colors.brand,
   },
   analysisCardActions: {
-    alignSelf: "stretch",
+    alignSelf: "center",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
   },
   deleteCardButton: {
     width: 34,
@@ -1962,6 +1971,7 @@ const s = StyleSheet.create({
   authPageCompact: {
     flexDirection: "column",
     backgroundColor: colors.brandDark,
+    overflow: "hidden",
   },
   authAside: {
     flex: 1,
@@ -1970,14 +1980,14 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   authAsideCompact: {
-    flex: 0,
-    flexShrink: 0,
-    height: 230,
-    minHeight: 230,
-    maxHeight: 230,
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     paddingHorizontal: 22,
     paddingTop: 24,
-    paddingBottom: 54,
+    paddingBottom: 24,
     justifyContent: "flex-start",
   },
   authOrbOne: {
@@ -1998,6 +2008,11 @@ const s = StyleSheet.create({
     bottom: -90,
     backgroundColor: "#20C4B52C",
   },
+  authLabSheet: { position: "absolute", width: 122, height: 76, padding: 13, borderRadius: 18, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#FFFFFF13", borderWidth: 1, borderColor: "#FFFFFF20" },
+  authLabSheetOne: { right: -24, top: 92, transform: [{rotate:"8deg"}] },
+  authLabSheetTwo: { left: -34, bottom: 112, transform: [{rotate:"-9deg"}] },
+  authLabLine: { width: 54, height: 5, borderRadius: 3, marginVertical: 3, backgroundColor: "#FFFFFF35" },
+  authMedicalCross: { position: "absolute", right: 34, bottom: 190, width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#25AFA044" },
   authVersion: {
     position: "absolute",
     top: 22,
@@ -2038,12 +2053,12 @@ const s = StyleSheet.create({
   },
   authPointText: { color: "#E0EEE8", fontSize: 13 },
   authForm: { flexGrow: 1, justifyContent: "center", padding: 32 },
-  authScrollCompact: { flex: 1, backgroundColor: colors.paper },
+  authScrollCompact: { flex: 1, zIndex: 2, backgroundColor: "transparent" },
   authFormCompact: {
     flexGrow: 1,
     justifyContent: "flex-start",
     paddingHorizontal: 16,
-    paddingTop: 0,
+    paddingTop: 222,
     paddingBottom: 32,
   },
   authCard: {
@@ -2059,6 +2074,7 @@ const s = StyleSheet.create({
     maxWidth: 520,
     borderRadius: 26,
     padding: 22,
+    backgroundColor: "#FFFFFFF2",
   },
   cardTitle: {
     fontSize: 24,
@@ -2415,12 +2431,25 @@ const s = StyleSheet.create({
   },
   verifyText: { flex: 1, fontSize: 12, lineHeight: 18, color: colors.amber },
   registrationVitals: { width: "100%", flexDirection: "column", gap: 2 },
+  analysisPage: { flex: 1, minWidth: 0, backgroundColor: colors.paper },
+  analysisScrollContent: { paddingBottom: 112 },
+  uploadDock: { position: "absolute", left: 16, right: 16, bottom: 10, maxWidth: 520, alignSelf: "center", padding: 7, borderRadius: 20, backgroundColor: "#FFFFFFF2", ...shadow },
   patientHome: { flex: 1, width: "100%", maxWidth: 920, alignSelf: "center", overflow: "hidden", backgroundColor: "#17214B" },
   patientHomeCompact: { maxWidth: "100%" },
-  patientWelcome: { minHeight: 142, paddingHorizontal: 28, paddingTop: 18, paddingBottom: 42, justifyContent: "center" },
-  patientWelcomeCompact: { minHeight: 122, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 34 },
+  patientWelcome: { minHeight: 126, paddingHorizontal: 28, paddingTop: 18, paddingBottom: 38, justifyContent: "center" },
+  patientWelcomeCompact: { minHeight: 102, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 29 },
   homeDiscovery: { flex: 1, minHeight: 0, marginTop: -24, padding: 20, paddingBottom: 24, gap: 14, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: "#F3F4FA", overflow: "hidden" },
   homeDiscoveryCompact: { padding: 12, paddingTop: 14, paddingBottom: 12, gap: 11, borderTopLeftRadius: 28, borderTopRightRadius: 28 },
+  homeUpdates: { gap: 8 },
+  homeUpdateMain: { minHeight: 70, padding: 11, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 18, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.violetSoft },
+  homeUpdateAlert: { backgroundColor: "#FFF7F5", borderColor: "#F6D3CC" },
+  homeUpdateIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: colors.mint },
+  homeUpdateIconAlert: { backgroundColor: colors.coralSoft },
+  homeUpdateTitle: { color: colors.ink, fontSize: 13, lineHeight: 17, fontWeight: "800" },
+  homeUpdateText: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  homeReminderList: { flexDirection: "row", gap: 7 },
+  homeReminder: { flex: 1, minWidth: 0, minHeight: 36, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, backgroundColor: colors.white },
+  homeReminderText: { flex: 1, color: colors.ink, fontSize: 10, fontWeight: "700" },
   wellnessCardHead: { flexDirection: "row", alignItems: "center", gap: 12 },
   wellnessIcon: { width: 44, height: 44, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: colors.violetSoft },
   wellnessTitle: { fontSize: 18, fontWeight: "800", color: colors.ink },
@@ -2584,11 +2613,15 @@ const s = StyleSheet.create({
   consentBox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: colors.muted, backgroundColor: colors.white, alignItems: "center", justifyContent: "center" },
   consentBoxChecked: { borderColor: colors.brand, backgroundColor: colors.brand },
   consentLabel: { flex: 1, color: colors.ink, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  consentTextButton: { flex: 1, minHeight: 42, justifyContent: "center" },
+  consentOpen: { color: colors.brand, fontSize: 11, fontWeight: "700", marginTop: 2 },
   consentWarning: { position: "absolute", zIndex: 20, top: 10, left: 12, right: 12, maxWidth: 680, alignSelf: "center", padding: 15, borderRadius: 18, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.amberSoft, ...shadow },
   consentWarningHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   consentWarningTitle: { color: colors.ink, fontSize: 15, fontWeight: "800" },
   consentWarningText: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 7 },
   consentWarningActions: { flexDirection: "row", justifyContent: "flex-end", gap: 9, marginTop: 11 },
+  legalBody: { width: "100%", maxWidth: 760, alignSelf: "center", padding: 22, paddingBottom: 80 },
+  legalText: { color: colors.ink, fontSize: 15, lineHeight: 24 },
   verifiedText: { color: colors.aqua, fontWeight: "800", fontSize: 12 },
   choiceWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   slotGroups: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
