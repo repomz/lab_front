@@ -7,6 +7,7 @@ export type Marker = { name: string; canonical_name: string; value?: number; tex
 export type AIReview = { summary: string; lifestyle: string[]; nutrition: string[]; doctor_needed: boolean; urgency: string; suggested_specialty?: string; disclaimer: string; provider: string };
 export type Analysis = { id: string; owner_id: string; title: string; category?: string; lab_name?: string; original_name: string; mime_type: string; ocr_text?: string; markers: Marker[]; ai_review: AIReview; status: string; shared_with: string[]; created_at: string };
 export type Consultation = { id: string; analysis_id?: string; patient_id: string; doctor_id?: string; source?: "ai" | "doctor"; title?: string; specialty?: string; service_type?: string; appointment_at?: string; question: string; reply?: string; status: string; created_at: string };
+export type SupportMessage = { id: string; user_id: string; sender: "patient" | "support"; text: string; created_at: string };
 export type ClinicalAssistResult = { assessment: string; red_flags: string[]; suggested_checks: string[]; tactics: string[]; guideline_refs: string[]; limitations: string };
 export type ScheduleSlot = { id: string; doctor_id: string; patient_id?: string; appointment_id?: string; start_at: string; end_at: string; status: "available" | "booked"; patient_name?: string };
 export type PatientNote = { id: string; doctor_id: string; patient_id: string; text: string; created_at: string; updated_at: string };

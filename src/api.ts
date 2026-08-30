@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import { ActivitySurvey, AIChat, AIMessage, Analysis, ClinicalAssistResult, Consultation, Guide, GuideCatalog, NutritionSurvey, PatientNote, Role, ScheduleSlot, User } from "./types";
+import { ActivitySurvey, AIChat, AIMessage, Analysis, ClinicalAssistResult, Consultation, Guide, GuideCatalog, NutritionSurvey, PatientNote, Role, ScheduleSlot, SupportMessage, User } from "./types";
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080/api/v1";
@@ -69,6 +69,8 @@ export const api = {
   patients: () => request<User[]>("/patients"),
   analyses: () => request<Analysis[]>("/analyses"),
   consultations: () => request<Consultation[]>("/consultations"),
+  supportMessages: () => request<SupportMessage[]>("/support/messages"),
+  sendSupportMessage: (text: string) => request<SupportMessage>("/support/messages", { method: "POST", body: JSON.stringify({ text }) }),
   upload: async (
     asset: { uri: string; name: string; mimeType?: string; file?: Blob },
   ) => {

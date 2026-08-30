@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Image,
   Linking,
@@ -24,12 +25,12 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { LinearGradient } from "expo-linear-gradient";
 import { api, API_URL, restoreToken, setToken } from "./src/api";
-import { ActivitySurvey, AIChat, Analysis, ClinicalAssistResult, Consultation, Guide, NutritionSurvey, PatientNote, Role, ScheduleSlot, User } from "./src/types";
+import { ActivitySurvey, AIChat, Analysis, ClinicalAssistResult, Consultation, Guide, NutritionSurvey, PatientNote, Role, ScheduleSlot, SupportMessage, User } from "./src/types";
 import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.5";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.6";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
 type AgeBand = "under20" | "20s" | "30s" | "40s" | "50s" | "60s" | "70s" | "80s";
 const activityImages: Record<AgeBand, number[]> = {
@@ -84,6 +85,8 @@ export default function App() {
   const [selected, setSelected] = useState<Analysis | null>(null);
   const [upload, setUpload] = useState<Asset | null>(null);
   const [error, setError] = useState("");
+  const [focusVisit, setFocusVisit] = useState<Consultation | null>(null);
+  const [focusDoctorID, setFocusDoctorID] = useState("");
   const { width } = useWindowDimensions();
   const desktop = width >= 960;
   const compact = width < 640;
@@ -92,6 +95,13 @@ export default function App() {
     const [a, c] = await Promise.all([api.analyses(), api.consultations()]);
     setAnalyses(a);
     setConsultations(c);
+  }
+  async function logout() {
+    await setToken("");
+    setUser(null);
+    setTab("home");
+    setAnalyses([]);
+    setConsultations([]);
   }
   function requestDelete(item: Analysis) {
     const remove = async () => {
@@ -153,6 +163,8 @@ export default function App() {
         onOpen={setSelected}
         onTab={setTab}
         onUser={setUser}
+        onOpenVisit={(visit) => { setFocusVisit(visit); setTab("consultations"); }}
+        onOpenDoctor={(doctorID) => { setFocusDoctorID(doctorID); setTab("doctors"); }}
       />
     ) : tab === "analyses" ? (
       <Analyses
@@ -170,29 +182,29 @@ export default function App() {
         data={consultations}
         user={user}
         onRefresh={() => refresh()}
+        initialSelected={focusVisit}
+        onTargetHandled={() => setFocusVisit(null)}
       />
     ) : tab === "doctors" ? (
-      <DoctorsScreen user={user} onRefresh={() => refresh()} />
+      <DoctorsScreen user={user} onRefresh={() => refresh()} initialDoctorID={focusDoctorID} onTargetHandled={() => setFocusDoctorID("")} />
     ) : tab === "ai" ? (
       <AIWorkspace />
     ) : tab === "guides" ? (
       <Guides />
+    ) : user.role === "patient" ? (
+      <SupportChat onLogout={logout} />
     ) : (
       <Profile
         user={user}
         onUpdated={setUser}
-        onLogout={async () => {
-          await setToken("");
-          setUser(null);
-          setTab("home");
-          setAnalyses([]);
-        }}
+        onLogout={logout}
       />
     );
-  const homeLanding = tab === "home" && user.role === "patient";
+  const immersiveHeader = tab === "home" || (tab === "profile" && user.role === "patient");
   return (
-    <SafeAreaView style={[s.safe, homeLanding && s.safeHome]}>
-      <StatusBar style={homeLanding ? "light" : "dark"} translucent backgroundColor="transparent" />
+    <View style={[s.safe, immersiveHeader && s.safeHome]}>
+      <StatusBar style={immersiveHeader ? "light" : "dark"} translucent backgroundColor="transparent" />
+      <SafeAreaView style={s.safeInner}>
       <View style={s.shell}>
         {desktop && <Sidebar user={user} tab={tab} onTab={setTab} />}
         <View style={s.main}>
@@ -226,7 +238,8 @@ export default function App() {
         }}
         onError={setError}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -269,8 +282,9 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
     }
   }
   return (
-    <SafeAreaView style={[s.authPage, compact && s.authPageCompact]}>
+    <View style={[s.authOuter, compact && s.authOuterCompact]}>
       <StatusBar style={compact ? "light" : "dark"} translucent backgroundColor="transparent" />
+    <SafeAreaView style={[s.authPage, compact && s.authPageCompact]}>
       <LinearGradient
         colors={["#17214B", "#3D367A", "#146E78"]}
         start={{ x: 0, y: 0 }}
@@ -426,6 +440,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
         </View>
       </ScrollView>
     </SafeAreaView>
+    </View>
   );
 }
 
@@ -437,6 +452,8 @@ function Home({
   onOpen,
   onTab,
   onUser,
+  onOpenVisit,
+  onOpenDoctor,
 }: {
   compact: boolean;
   user: User;
@@ -445,6 +462,8 @@ function Home({
   onOpen: (a: Analysis) => void;
   onTab: (t: Tab) => void;
   onUser: (u: User) => void;
+  onOpenVisit: (visit: Consultation) => void;
+  onOpenDoctor: (doctorID: string) => void;
 }) {
   const [wellness, setWellness] = useState<"activity" | "nutrition" | null>(null);
   const age = user.patient_profile?.age || 35;
@@ -470,19 +489,19 @@ function Home({
             Здравствуйте, {firstName(user.full_name)}
           </Text>
         </View>
-      </LinearGradient>
-      <View style={[s.homeDiscovery, compact && s.homeDiscoveryCompact]}>
         <View style={s.homeUpdates}>
-          <Pressable onPress={() => onTab("analyses")} style={[s.homeUpdateMain, latestNeedsAttention && s.homeUpdateAlert]}>
+          <Pressable onPress={() => onTab("analyses")} style={[s.homeUpdateMain, s.homeUpdateOnGradient, latestNeedsAttention && s.homeUpdateAlert]}>
             <View style={[s.homeUpdateIcon, latestNeedsAttention && s.homeUpdateIconAlert]}><Ionicons name={latestNeedsAttention ? "alert-circle-outline" : "heart-outline"} size={20} color={latestNeedsAttention ? colors.coral : colors.aqua}/></View>
             <View style={{flex:1}}><Text style={s.homeUpdateTitle}>{!latest ? "Добавьте первый анализ" : latestNeedsAttention ? "Обратите внимание на последние анализы" : "Ваши последние показатели выглядят хорошо"}</Text><Text numberOfLines={1} style={s.homeUpdateText}>{!latest ? "Соберите историю здоровья в одном месте" : latestNeedsAttention ? "Откройте информацию о состоянии и рекомендации" : "Так держать — продолжайте заботиться о себе"}</Text></View>
             <Ionicons name="chevron-forward" size={18} color={colors.muted}/>
           </Pressable>
           {(upcoming || answered) && <View style={s.homeReminderList}>
-            {upcoming && <Pressable onPress={() => onTab("consultations")} style={s.homeReminder}><Ionicons name="calendar-outline" size={17} color={colors.violet}/><Text numberOfLines={1} style={s.homeReminderText}>Приём {new Date(upcoming.appointment_at!).toLocaleString("ru-RU", {day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</Text></Pressable>}
-            {answered && <Pressable onPress={() => onTab("consultations")} style={s.homeReminder}><Ionicons name="chatbubble-ellipses-outline" size={17} color={colors.aqua}/><Text numberOfLines={1} style={s.homeReminderText}>Получен новый ответ врача</Text></Pressable>}
+            {upcoming && <Pressable onPress={() => upcoming.doctor_id ? onOpenDoctor(upcoming.doctor_id) : onOpenVisit(upcoming)} style={s.homeReminder}><Ionicons name="calendar-outline" size={21} color={colors.violet}/><View style={{flex:1}}><Text style={s.homeReminderLabel}>Предстоящий приём</Text><Text numberOfLines={1} style={s.homeReminderText}>{new Date(upcoming.appointment_at!).toLocaleString("ru-RU", {day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</Text></View></Pressable>}
+            {answered && <Pressable onPress={() => onOpenVisit(answered)} style={s.homeReminder}><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.aqua}/><View style={{flex:1}}><Text style={s.homeReminderLabel}>Ответ врача</Text><Text numberOfLines={1} style={s.homeReminderText}>Открыть переписку</Text></View></Pressable>}
           </View>}
         </View>
+      </LinearGradient>
+      <View style={[s.homeDiscovery, compact && s.homeDiscoveryCompact]}>
         <WellnessPhotoCard ageBand={ageGroup} onPress={() => setWellness("activity")} />
         <NutritionMediaCard ageTone={ageTone} onPress={() => setWellness("nutrition")} />
       </View>
@@ -494,11 +513,17 @@ function Home({
 function WellnessPhotoCard({ ageBand, onPress }: { ageBand: AgeBand; onPress: () => void }) {
   const images = activityImages[ageBand];
   const [index, setIndex] = useState(0);
+  const opacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     setIndex(0);
-    const timer = setInterval(() => setIndex((value) => (value + 1) % images.length), 7000);
-    return () => clearInterval(timer);
-  }, [ageBand, images.length]);
+    const rotate = () => Animated.timing(opacity, { toValue: 0, duration: 800, useNativeDriver: true }).start(() => {
+      setIndex((value) => (value + 1) % images.length);
+      Animated.timing(opacity, { toValue: 1, duration: 1100, useNativeDriver: true }).start();
+    });
+    const initial = setTimeout(rotate, 6000);
+    const timer = setInterval(rotate, 12000);
+    return () => { clearTimeout(initial); clearInterval(timer); opacity.stopAnimation(); };
+  }, [ageBand, images.length, opacity]);
   const source = images[index] || images[0]!;
   const copy: Record<AgeBand, [string, string]> = {
     under20: ["Движение в радость", "Игры, велосипед и командный спорт"],
@@ -512,7 +537,7 @@ function WellnessPhotoCard({ ageBand, onPress }: { ageBand: AgeBand; onPress: ()
   };
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [s.homeMediaCard, pressed && { opacity: 0.88 }]}>
-      <Image source={source} style={s.homeMediaImage as any} />
+      <Animated.Image source={source} style={[s.homeMediaImage as any, { opacity }]} />
       <LinearGradient colors={["#10182ACC", "#10182A1A"]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={s.videoOverlay}>
         <View style={{ flex: 1 }}><Text style={s.videoEyebrow}>АКТИВНЫЙ ОБРАЗ ЖИЗНИ</Text><Text style={s.videoTitle}>{copy[ageBand][0]}</Text><Text style={s.videoSubtitle}>{copy[ageBand][1]}</Text></View>
         <View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white} /></View>
@@ -521,7 +546,23 @@ function WellnessPhotoCard({ ageBand, onPress }: { ageBand: AgeBand; onPress: ()
   );
 }
 
-function NutritionMediaCard({ageTone,onPress}:{ageTone:"young"|"middle"|"senior";onPress:()=>void}){const base=ageTone==="young"?0:ageTone==="middle"?1:2;const [offset,setOffset]=useState(0);useEffect(()=>{const timer=setInterval(()=>setOffset(v=>(v+1)%3),7000);return()=>clearInterval(timer)},[]);const image=nutritionImages[(base+offset)%3];const subtitle=ageTone==="young"?"Энергия, белок и регулярный режим":ageTone==="middle"?"Баланс, клетчатка и разумные порции":"Простая питательная еда и достаточное питьё";return <Pressable onPress={onPress} style={({pressed})=>[s.homeMediaCard,pressed&&{opacity:.86}]}><Image source={image} style={s.homeMediaImage as any}/><LinearGradient colors={["#111827CC","#11182712"]} start={{x:0,y:1}} end={{x:1,y:0}} style={s.videoOverlay}><View style={{flex:1}}><Text style={s.videoEyebrow}>ПРАВИЛЬНОЕ ПИТАНИЕ</Text><Text style={s.videoTitle}>Еда для здоровья</Text><Text style={s.videoSubtitle}>{subtitle}</Text></View><View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white}/></View></LinearGradient></Pressable>}
+function NutritionMediaCard({ ageTone, onPress }: { ageTone: "young" | "middle" | "senior"; onPress: () => void }) {
+  const base = ageTone === "young" ? 0 : ageTone === "middle" ? 1 : 2;
+  const [offset, setOffset] = useState(0);
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const rotate = () => Animated.timing(opacity, { toValue: 0, duration: 800, useNativeDriver: true }).start(() => {
+      setOffset((value) => (value + 1) % 3);
+      Animated.timing(opacity, { toValue: 1, duration: 1100, useNativeDriver: true }).start();
+    });
+    const initial = setTimeout(rotate, 12000);
+    const timer = setInterval(rotate, 12000);
+    return () => { clearTimeout(initial); clearInterval(timer); opacity.stopAnimation(); };
+  }, [opacity]);
+  const image = nutritionImages[(base + offset) % 3];
+  const subtitle = ageTone === "young" ? "Энергия, белок и регулярный режим" : ageTone === "middle" ? "Баланс, клетчатка и разумные порции" : "Простая питательная еда и достаточное питьё";
+  return <Pressable onPress={onPress} style={({pressed})=>[s.homeMediaCard,pressed&&{opacity:.86}]}><Animated.Image source={image} style={[s.homeMediaImage as any,{opacity}]}/><LinearGradient colors={["#111827CC","#11182712"]} start={{x:0,y:1}} end={{x:1,y:0}} style={s.videoOverlay}><View style={{flex:1}}><Text style={s.videoEyebrow}>ПРАВИЛЬНОЕ ПИТАНИЕ</Text><Text style={s.videoTitle}>Еда для здоровья</Text><Text style={s.videoSubtitle}>{subtitle}</Text></View><View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white}/></View></LinearGradient></Pressable>;
+}
 
 function FoodPart({ icon: foodIcon, value, label, color }: { icon: keyof typeof Ionicons.glyphMap; value: string; label: string; color: string }) {
   return <View style={s.foodPart}><Ionicons name={foodIcon} size={22} color={color} /><Text style={[s.foodValue, { color }]}>{value}</Text><Text style={s.foodLabel}>{label}</Text></View>;
@@ -694,16 +735,25 @@ function Consultations({
   data,
   user,
   onRefresh,
+  initialSelected,
+  onTargetHandled,
 }: {
   data: Consultation[];
   user: User;
   onRefresh: () => void;
+  initialSelected?: Consultation | null;
+  onTargetHandled?: () => void;
 }) {
   const [selected, setSelected] = useState<Consultation | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [listening, setListening] = useState(false);
+  useEffect(() => {
+    if (!initialSelected) return;
+    setSelected(data.find((item) => item.id === initialSelected.id) || initialSelected);
+    onTargetHandled?.();
+  }, [initialSelected, data, onTargetHandled]);
   async function askAI() {
     if (!question.trim()) return;
     setAsking(true);
@@ -780,7 +830,7 @@ function Guides(){
   <Modal visible={!!active} animationType="slide" onRequestClose={()=>setActive(null)}><SafeAreaView style={s.guideReader}><View style={s.chatHeader}><Pressable style={s.iconButton} onPress={()=>setActive(null)}><Ionicons name="arrow-back" size={24}/></Pressable><View style={{flex:1}}><Text numberOfLines={1} style={s.doctorDirectoryName}>{active?.title}</Text><Text style={s.analysisMeta}>{[active?.code,active?.status].filter(Boolean).join(" · ")}</Text></View><Pressable style={s.iconButton} onPress={()=>active&&void Linking.openURL(active.source_url)}><Ionicons name="open-outline" size={22} color={colors.brand}/></Pressable></View><ScrollView ref={reader} contentContainerStyle={s.guideBody}><View style={s.guideContents}><Text style={s.cardTitle}>Содержание</Text>{active?.sections?.map((section,index)=><Pressable key={section.id} style={s.contentsRow} onPress={()=>reader.current?.scrollTo({y:positions.current[section.id]||0,animated:true})}><Text style={s.contentsNumber}>{index+1}</Text><Text style={s.contentsTitle}>{section.title}</Text></Pressable>)}</View>{active?.sections?.map(section=><View key={section.id} onLayout={e=>{positions.current[section.id]=e.nativeEvent.layout.y}} style={s.guideSection}><Text style={s.guideSectionTitle}>{section.title}</Text><Text selectable style={s.guideText}>{section.content}</Text><Pressable style={s.backToContents} onPress={()=>reader.current?.scrollTo({y:0,animated:true})}><Ionicons name="arrow-up" size={16} color={colors.brand}/><Text style={s.link}>К содержанию</Text></Pressable></View>)}</ScrollView></SafeAreaView></Modal></>
 }
 
-function DoctorsScreen({ user, onRefresh }: { user: User; onRefresh: () => void }) {
+function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled }: { user: User; onRefresh: () => void; initialDoctorID?: string; onTargetHandled?: () => void }) {
   const [query, setQuery] = useState("");
   const [doctors, setDoctors] = useState<User[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<User | null>(null);
@@ -798,6 +848,14 @@ function DoctorsScreen({ user, onRefresh }: { user: User; onRefresh: () => void 
   useEffect(() => {
     if (user.role === "patient") api.doctors(query).then(setDoctors).catch(() => setDoctors([]));
   }, [query, user.role]);
+  useEffect(() => {
+    if (!initialDoctorID) return;
+    const doctor = doctors.find((item) => item.id === initialDoctorID);
+    if (!doctor) return;
+    setSelectedDoctor(doctor);
+    setAction("profile");
+    onTargetHandled?.();
+  }, [initialDoctorID, doctors, onTargetHandled]);
   useEffect(() => {
     if (!selectedDoctor || action !== "appointment") return;
     const from = new Date();
@@ -1376,6 +1434,44 @@ function Detail({
   );
 }
 
+function SupportChat({ onLogout }: { onLogout: () => void }) {
+  const [messages, setMessages] = useState<SupportMessage[]>([]);
+  const [textValue, setTextValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const listRef = useRef<React.ComponentRef<typeof NativeScrollView>>(null);
+  async function load() {
+    try { setMessages(await api.supportMessages()); }
+    catch (error) { Alert.alert("Чат недоступен", error instanceof Error ? error.message : "Не удалось загрузить сообщения"); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+  async function send() {
+    const value = textValue.trim();
+    if (!value || busy) return;
+    setBusy(true);
+    try {
+      const created = await api.sendSupportMessage(value);
+      setMessages((current) => [...current, created]);
+      setTextValue("");
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+    } catch (error) {
+      Alert.alert("Не удалось отправить", error instanceof Error ? error.message : "Ошибка");
+    } finally { setBusy(false); }
+  }
+  return <View style={s.supportPage}>
+    <LinearGradient colors={["#17214B", "#3C3A86", "#147D83"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.supportHeader}>
+      <View style={s.supportIdentity}><View style={s.supportLogo}><Ionicons name="pulse" size={22} color={colors.white}/></View><View><Text style={s.supportTitle}>Поддержка Lab HEALTH</Text><Text style={s.supportOnline}>● На связи</Text></View></View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Выйти" onPress={onLogout} style={s.supportLogout}><Ionicons name="log-out-outline" size={22} color={colors.white}/></Pressable>
+    </LinearGradient>
+    <ScrollView ref={listRef} style={{flex:1}} contentContainerStyle={s.supportMessages} onContentSizeChange={() => listRef.current?.scrollToEnd({animated:false})}>
+      <View style={[s.messageBubble,s.assistantBubble,s.supportBubble]}><Text style={s.body}>Здравствуйте! Напишите, чем мы можем помочь с приложением, загрузкой анализов или доступом к данным.</Text></View>
+      {loading ? <ActivityIndicator color={colors.violet}/> : messages.map((message) => <View key={message.id} style={[s.messageBubble,message.sender === "patient" ? s.userBubble : s.assistantBubble,s.supportBubble]}><Text style={[s.body,message.sender === "patient" && {color:colors.white}]}>{message.text}</Text><Text style={[s.messageTime,message.sender === "patient" && {color:"#FFFFFFAA"}]}>{new Date(message.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}
+    </ScrollView>
+    <View style={s.chatComposer}><TextInput multiline maxLength={4000} style={s.chatInput} placeholder="Сообщение поддержке…" value={textValue} onChangeText={setTextValue}/><Pressable accessibilityRole="button" accessibilityLabel="Отправить" disabled={busy||!textValue.trim()} style={[s.sendButton,(busy||!textValue.trim())&&{opacity:.45}]} onPress={()=>void send()}>{busy?<ActivityIndicator size="small" color={colors.white}/>:<Ionicons name="arrow-up" size={22} color={colors.white}/>}</Pressable></View>
+  </View>;
+}
+
 function Sidebar({
   user,
   tab,
@@ -1403,12 +1499,12 @@ function Sidebar({
             style={[s.navItem, tab === t && s.navActive]}
           >
             <Ionicons
-              name={icon[t]}
+              name={user.role === "patient" && t === "profile" ? "chatbubble-ellipses-outline" : icon[t]}
               size={22}
               color={tab === t ? colors.brand : colors.muted}
             />
             <Text style={[s.navText, tab === t && { color: colors.brand }]}>
-              {labels[t]}
+              {user.role === "patient" && t === "profile" ? "Чат" : labels[t]}
             </Text>
           </Pressable>
         ))}
@@ -1440,12 +1536,12 @@ function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) =>
           onPress={() => onTab(t)}
         >
           <Ionicons
-            name={icon[t]}
+            name={role === "patient" && t === "profile" ? "chatbubble-ellipses-outline" : icon[t]}
             size={23}
             color={tab === t ? colors.brand : colors.muted}
           />
           <Text style={[s.bottomText, tab === t && { color: colors.brand }]}>
-            {labels[t]}
+            {role === "patient" && t === "profile" ? "Чат" : labels[t]}
           </Text>
         </Pressable>
       ))}
@@ -1698,6 +1794,7 @@ const date = (x: string) =>
 const s = StyleSheet.create({
   safe: { flex: 1, width: "100%", backgroundColor: colors.paper, overflow: "hidden" },
   safeHome: { backgroundColor: "#17214B" },
+  safeInner: { flex: 1, width: "100%", backgroundColor: "transparent" },
   shell: { flex: 1, width: "100%", flexDirection: "row", overflow: "hidden" },
   main: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden" },
   content: { flex: 1, minWidth: 0, maxWidth: "100%" },
@@ -1967,7 +2064,9 @@ const s = StyleSheet.create({
     maxWidth: 420,
     marginTop: 5,
   },
-  authPage: { flex: 1, flexDirection: "row", backgroundColor: colors.paper },
+  authOuter: { flex: 1, backgroundColor: colors.paper },
+  authOuterCompact: { backgroundColor: "#17214B" },
+  authPage: { flex: 1, width: "100%", flexDirection: "row", backgroundColor: colors.paper },
   authPageCompact: {
     flexDirection: "column",
     backgroundColor: colors.brandDark,
@@ -2436,20 +2535,22 @@ const s = StyleSheet.create({
   uploadDock: { position: "absolute", left: 16, right: 16, bottom: 10, maxWidth: 520, alignSelf: "center", padding: 7, borderRadius: 20, backgroundColor: "#FFFFFFF2", ...shadow },
   patientHome: { flex: 1, width: "100%", maxWidth: 920, alignSelf: "center", overflow: "hidden", backgroundColor: "#17214B" },
   patientHomeCompact: { maxWidth: "100%" },
-  patientWelcome: { minHeight: 126, paddingHorizontal: 28, paddingTop: 18, paddingBottom: 38, justifyContent: "center" },
-  patientWelcomeCompact: { minHeight: 102, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 29 },
+  patientWelcome: { minHeight: 238, paddingHorizontal: 28, paddingTop: 20, paddingBottom: 42, justifyContent: "center", gap: 15 },
+  patientWelcomeCompact: { minHeight: 222, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 34, gap: 11 },
   homeDiscovery: { flex: 1, minHeight: 0, marginTop: -24, padding: 20, paddingBottom: 24, gap: 14, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: "#F3F4FA", overflow: "hidden" },
   homeDiscoveryCompact: { padding: 12, paddingTop: 14, paddingBottom: 12, gap: 11, borderTopLeftRadius: 28, borderTopRightRadius: 28 },
-  homeUpdates: { gap: 8 },
+  homeUpdates: { gap: 9 },
   homeUpdateMain: { minHeight: 70, padding: 11, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 18, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.violetSoft },
+  homeUpdateOnGradient: { backgroundColor: "#FFFFFFF2", borderColor: "#FFFFFF4A" },
   homeUpdateAlert: { backgroundColor: "#FFF7F5", borderColor: "#F6D3CC" },
   homeUpdateIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: colors.mint },
   homeUpdateIconAlert: { backgroundColor: colors.coralSoft },
   homeUpdateTitle: { color: colors.ink, fontSize: 13, lineHeight: 17, fontWeight: "800" },
   homeUpdateText: { color: colors.muted, fontSize: 11, marginTop: 2 },
-  homeReminderList: { flexDirection: "row", gap: 7 },
-  homeReminder: { flex: 1, minWidth: 0, minHeight: 36, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, backgroundColor: colors.white },
-  homeReminderText: { flex: 1, color: colors.ink, fontSize: 10, fontWeight: "700" },
+  homeReminderList: { flexDirection: "row", gap: 8 },
+  homeReminder: { flex: 1, minWidth: 0, minHeight: 54, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 15, backgroundColor: "#FFFFFFF2" },
+  homeReminderLabel: { color: colors.ink, fontSize: 13, lineHeight: 17, fontWeight: "800" },
+  homeReminderText: { color: colors.muted, fontSize: 12, lineHeight: 16, fontWeight: "700", marginTop: 1 },
   wellnessCardHead: { flexDirection: "row", alignItems: "center", gap: 12 },
   wellnessIcon: { width: 44, height: 44, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: colors.violetSoft },
   wellnessTitle: { fontSize: 18, fontWeight: "800", color: colors.ink },
@@ -2579,6 +2680,15 @@ const s = StyleSheet.create({
   chatComposer: { minHeight: 76, padding: 10, flexDirection: "row", alignItems: "flex-end", gap: 8, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.line },
   chatInput: { flex: 1, maxHeight: 120, minHeight: 48, borderRadius: 17, backgroundColor: colors.paper, paddingHorizontal: 15, paddingVertical: 12, color: colors.ink },
   sendButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.violet, alignItems: "center", justifyContent: "center" },
+  supportPage: { flex: 1, minHeight: 0, backgroundColor: colors.paper },
+  supportHeader: { minHeight: 82, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  supportIdentity: { flexDirection: "row", alignItems: "center", gap: 11 },
+  supportLogo: { width: 44, height: 44, borderRadius: 15, backgroundColor: "#FFFFFF20", alignItems: "center", justifyContent: "center" },
+  supportTitle: { color: colors.white, fontSize: 17, fontWeight: "800" },
+  supportOnline: { color: "#8BE4D4", fontSize: 11, fontWeight: "700", marginTop: 3 },
+  supportLogout: { width: 44, height: 44, borderRadius: 15, backgroundColor: "#FFFFFF18", alignItems: "center", justifyContent: "center" },
+  supportMessages: { flexGrow: 1, padding: 16, paddingBottom: 24, gap: 10, maxWidth: 900, width: "100%", alignSelf: "center", justifyContent: "flex-end" },
+  supportBubble: { minWidth: 92 },
   guidePublished: { color: colors.aqua, fontSize: 10, fontWeight: "800", marginTop: 5 },
   guideReader: { flex: 1, backgroundColor: colors.paper },
   guideBody: { width: "100%", maxWidth: 900, alignSelf: "center", padding: 20, paddingBottom: 80, gap: 18 },
