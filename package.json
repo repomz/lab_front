@@ -1,12 +1,12 @@
 {
   "name": "lab-front",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "private": true,
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
     "web": "expo start --web",
-    "build": "expo export --platform web",
+    "build": "expo export --platform web && node scripts/patch-web-html.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },

@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.8";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.9";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
 type AgeBand = "under20" | "20s" | "30s" | "40s" | "50s" | "60s" | "70s" | "80s";
 const activityImages: Record<AgeBand, number[]> = {
@@ -52,6 +52,28 @@ function Modal(props: React.ComponentProps<typeof NativeModal>) {
   if (!props.visible) return null;
   if (Platform.OS === "web") return <View style={s.webModalRoot}>{props.children}</View>;
   return <NativeModal {...props} />;
+}
+function SystemChrome({ dark, background }: { dark: boolean; background: string }) {
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const ensureMeta = (name: string, content: string) => {
+      let node = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
+      if (!node) {
+        node = document.createElement("meta");
+        node.name = name;
+        document.head.appendChild(node);
+      }
+      node.content = content;
+    };
+    const viewport = document.querySelector('meta[name="viewport"]') as HTMLMetaElement | null;
+    if (viewport && !viewport.content.includes("viewport-fit=cover")) viewport.content = `${viewport.content}, viewport-fit=cover`;
+    ensureMeta("theme-color", background);
+    ensureMeta("apple-mobile-web-app-capable", "yes");
+    ensureMeta("apple-mobile-web-app-status-bar-style", "black-translucent");
+    document.documentElement.style.backgroundColor = background;
+    document.body.style.backgroundColor = background;
+  }, [background]);
+  return <StatusBar style={dark ? "light" : "dark"} translucent backgroundColor="transparent" />;
 }
 const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   home: "home-outline",
@@ -203,10 +225,13 @@ export default function App() {
       />
     );
   const immersiveHeader = tab === "home";
-  const supportSurface = tab === "profile" && user.role === "patient";
+  const chromeColors: readonly [string, string, ...string[]] = immersiveHeader
+    ? ["#17214B", "#3C3A86", "#147D83"]
+    : ["#DCE7FF", "#EEEAFB", "#DFF3EF"];
+  const chromeBackground = immersiveHeader ? "#17214B" : "#E7ECFA";
   return (
-    <View style={[s.safe, immersiveHeader && s.safeHome, supportSurface && { backgroundColor: colors.white }]}>
-      <StatusBar style={immersiveHeader ? "light" : "dark"} translucent backgroundColor="transparent" />
+    <LinearGradient colors={chromeColors} start={{x:0,y:0}} end={{x:1,y:1}} style={s.safe}>
+      <SystemChrome dark={immersiveHeader} background={chromeBackground} />
       <SafeAreaView style={s.safeInner}>
       <View style={s.shell}>
         {desktop && <Sidebar user={user} tab={tab} onTab={setTab} />}
@@ -242,7 +267,7 @@ export default function App() {
         onError={setError}
       />
       </SafeAreaView>
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -286,7 +311,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   }
   return (
     <View style={[s.authOuter, compact && s.authOuterCompact]}>
-      <StatusBar style={compact ? "light" : "dark"} translucent backgroundColor="transparent" />
+      <SystemChrome dark={compact} background={compact ? "#17214B" : colors.paper} />
     <SafeAreaView style={[s.authPage, compact && s.authPageCompact]}>
       <LinearGradient
         colors={["#17214B", "#3D367A", "#146E78"]}
@@ -327,32 +352,35 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={[s.authCard, compact && s.authCardCompact]}>
-          <Text style={s.cardTitle}>
+          <Text style={[s.cardTitle, compact && s.authTextLight]}>
             {mode === "login" ? "С возвращением" : "Создать профиль"}
           </Text>
-          <Text style={s.cardHint}>
+          <Text style={[s.cardHint, compact && s.authHintLight]}>
             {mode === "login"
               ? "Войдите, чтобы открыть свою медицинскую историю."
               : "Выберите роль и заполните основные данные."}
           </Text>
           {mode === "register" && (
             <>
-              <View style={s.segment}>
+              <View style={[s.segment, compact && s.segmentOnDark]}>
                 <Segment
                   active={role === "patient"}
                   label="Я пациент"
                   icon="person"
+                  dark={compact}
                   onPress={() => setRole("patient")}
                 />
                 <Segment
                   active={role === "doctor"}
                   label="Я врач"
                   icon="medkit"
+                  dark={compact}
                   onPress={() => setRole("doctor")}
                 />
               </View>
               <Field
                 label="Имя (необязательно)"
+                dark={compact}
                 value={form.fullName}
                 onChangeText={(v: string) => setForm({ ...form, fullName: v })}
               />
@@ -360,6 +388,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
                 <>
                   <Field
                     label="Специализация"
+                    dark={compact}
                     placeholder="Например, эндокринолог"
                     value={form.specialization}
                     onChangeText={(v: string) =>
@@ -368,6 +397,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
                   />
                   <Field
                     label="Номер лицензии (необязательно)"
+                    dark={compact}
                     value={form.licenseNumber}
                     onChangeText={(v: string) =>
                       setForm({ ...form, licenseNumber: v })
@@ -379,6 +409,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
                 <View style={s.registrationVitals}>
                   <Field
                     label="Возраст"
+                    dark={compact}
                     keyboardType="number-pad"
                     placeholder="35"
                     value={form.age}
@@ -386,6 +417,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
                   />
                   <Field
                     label="Рост, см"
+                    dark={compact}
                     keyboardType="decimal-pad"
                     placeholder="175"
                     value={form.heightCM}
@@ -393,6 +425,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
                   />
                   <Field
                     label="Вес, кг"
+                    dark={compact}
                     keyboardType="decimal-pad"
                     placeholder="70"
                     value={form.weightKG}
@@ -404,12 +437,14 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
           )}
           <Field
             label="Логин"
+            dark={compact}
             autoCapitalize="none"
             value={form.email}
             onChangeText={(v: string) => setForm({ ...form, email: v })}
           />
           <Field
             label="Пароль"
+            dark={compact}
             secureTextEntry
             value={form.password}
             onChangeText={(v: string) => setForm({ ...form, password: v })}
@@ -434,7 +469,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
               setError("");
             }}
           >
-            <Text style={s.switchText}>
+            <Text style={[s.switchText, compact && s.switchTextOnDark]}>
               {mode === "login"
                 ? "Нет аккаунта? Создать"
                 : "Уже есть аккаунт? Войти"}
@@ -1615,14 +1650,15 @@ function AvatarView({user,size=44}:{user:User;size?:number}){
 function MiniAction({label,onPress,icon}:{label:string;onPress:()=>void;icon?:keyof typeof Ionicons.glyphMap}){return <Pressable onPress={onPress} style={s.miniAction}>{icon&&<Ionicons name={icon} size={16} color={colors.brand}/>}<Text style={s.miniActionText}>{label}</Text></Pressable>}
 function AIList({title,items}:{title:string;items?:string[]}){if(!items?.length)return null;return <View style={s.aiList}><Text style={s.replyLabel}>{title}</Text>{items.map((x,i)=><Text key={i} style={s.body}>• {x}</Text>)}</View>}
 function Field(props: any) {
+  const { dark, ...inputProps } = props;
   return (
     <View style={s.field}>
-      <Text style={s.label}>{props.label}</Text>
+      <Text style={[s.label, dark && s.labelOnDark]}>{props.label}</Text>
       <TextInput
-        {...props}
+        {...inputProps}
         label={undefined}
-        style={s.input}
-        placeholderTextColor="#9AA59F"
+        style={[s.input, dark && s.inputOnDark]}
+        placeholderTextColor={dark ? "#C7D1E7" : "#9AA59F"}
         autoCorrect={props.autoCorrect ?? false}
       />
     </View>
@@ -1672,11 +1708,13 @@ function Segment({
   active,
   label,
   icon,
+  dark,
   onPress,
 }: {
   active: boolean;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
+  dark?: boolean;
   onPress: () => void;
 }) {
   return (
@@ -1684,14 +1722,21 @@ function Segment({
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={[s.segmentItem, active && s.segmentActive]}
+      style={[s.segmentItem, active && s.segmentActive, dark && active && s.segmentActiveOnDark]}
     >
       <Ionicons
         name={icon}
         size={19}
-        color={active ? colors.brand : colors.muted}
+        color={dark ? (active ? colors.white : "#C7D1E7") : (active ? colors.brand : colors.muted)}
       />
-      <Text style={[s.segmentText, active && { color: colors.brand }]}>
+      <Text
+        style={[
+          s.segmentText,
+          active && { color: colors.brand },
+          dark && s.segmentTextOnDark,
+          dark && active && { color: colors.white },
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -2231,10 +2276,15 @@ const s = StyleSheet.create({
   },
   authCardCompact: {
     maxWidth: 520,
-    borderRadius: 26,
-    padding: 22,
-    backgroundColor: "#FFFFFFF2",
+    borderRadius: 0,
+    paddingHorizontal: 6,
+    paddingVertical: 20,
+    backgroundColor: "transparent",
+    shadowOpacity: 0,
+    elevation: 0,
   },
+  authTextLight: { color: colors.white },
+  authHintLight: { color: "#CFD8EA" },
   cardTitle: {
     fontSize: 24,
     fontWeight: "700",
@@ -2255,6 +2305,7 @@ const s = StyleSheet.create({
     borderRadius: 14,
     marginBottom: 16,
   },
+  segmentOnDark: { backgroundColor: "#FFFFFF12", borderWidth: 1, borderColor: "#FFFFFF20" },
   segmentItem: {
     flex: 1,
     minHeight: 46,
@@ -2266,9 +2317,12 @@ const s = StyleSheet.create({
     gap: 7,
   },
   segmentActive: { backgroundColor: colors.white, ...shadow },
+  segmentActiveOnDark: { backgroundColor: "#FFFFFF20", shadowOpacity: 0, elevation: 0 },
   segmentText: { fontSize: 13, fontWeight: "600", color: colors.muted },
+  segmentTextOnDark: { color: "#C7D1E7" },
   field: { gap: 7, marginBottom: 14 },
   label: { fontSize: 13, fontWeight: "700", color: colors.ink },
+  labelOnDark: { color: "#F3F6FF" },
   input: {
     minHeight: 52,
     borderWidth: 1,
@@ -2278,6 +2332,11 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     fontSize: 16,
     color: colors.ink,
+  },
+  inputOnDark: {
+    borderColor: "#FFFFFF30",
+    backgroundColor: "#FFFFFF16",
+    color: colors.white,
   },
   button: {
     minHeight: 52,
@@ -2297,6 +2356,7 @@ const s = StyleSheet.create({
     color: colors.brand,
     fontWeight: "700",
   },
+  switchTextOnDark: { color: "#D8E4FF" },
   textButton: {
     minHeight: 48,
     marginTop: 8,

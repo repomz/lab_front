@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lab",
     "slug": "lab-health",
-    "version": "0.5.8",
+    "version": "0.5.9",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
@@ -28,8 +28,8 @@
       "bundler": "metro",
       "name": "Lab — мои анализы",
       "shortName": "Lab",
-      "themeColor": "#3867D6",
-      "backgroundColor": "#F6F4FA",
+      "themeColor": "#17214B",
+      "backgroundColor": "#17214B",
       "display": "standalone"
     },
     "plugins": [
