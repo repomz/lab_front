@@ -348,7 +348,11 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
       </LinearGradient>
       <ScrollView
         style={compact && s.authScrollCompact}
-        contentContainerStyle={[s.authForm, compact && s.authFormCompact]}
+        contentContainerStyle={[
+          s.authForm,
+          compact && s.authFormCompact,
+          compact && mode === "login" && s.authFormLoginCompact,
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={[s.authCard, compact && s.authCardCompact]}>
@@ -2265,6 +2269,7 @@ const s = StyleSheet.create({
     paddingTop: 222,
     paddingBottom: 32,
   },
+  authFormLoginCompact: { paddingTop: 318 },
   authCard: {
     width: "100%",
     maxWidth: 460,
