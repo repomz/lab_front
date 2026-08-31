@@ -29,7 +29,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   register: (v: {
     email: string;
-    password: string;
+    pin: string;
     role: Role;
     fullName: string;
     specialization?: string;
@@ -42,7 +42,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({
         email: v.email,
-        password: v.password,
+        pin: v.pin,
         role: v.role,
         fullName: v.fullName,
         specialization: v.specialization,
@@ -52,15 +52,10 @@ export const api = {
         weightKG: v.weightKG,
       }),
     }),
-  login: (email: string, password: string) =>
+  login: (email: string, pin: string) =>
     request<{ token: string; user: User }>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
-    }),
-  setPIN: (email: string, currentPassword: string, pin: string) =>
-    request<{ token: string; user: User }>("/auth/set-pin", {
-      method: "POST",
-      body: JSON.stringify({ email, currentPassword, pin }),
+      body: JSON.stringify({ email, pin }),
     }),
   me: () => request<User>("/me"),
   updatePatientProfile: (value: { age: number; heightCM: number; weightKG: number; activity: ActivitySurvey; nutrition: NutritionSurvey }) =>

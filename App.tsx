@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.7.2";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.8.0";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
@@ -281,14 +281,12 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   const { width } = useWindowDimensions();
   const compact = width < 720;
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [legacyPIN, setLegacyPIN] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState("");
   const [role, setRole] = useState<Role>("patient");
   const [remembered, setRemembered] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "");
   const [rememberedName, setRememberedName] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_NAME_KEY) || "" : "");
   const [form, setForm] = useState({
     email: Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "",
-    password: "",
+    pin: "",
     fullName: "",
     specialization: "",
     licenseNumber: "",
@@ -298,22 +296,19 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const registrationReady = mode !== "register" || legacyPIN || (role === "doctor"
+  const registrationReady = mode !== "register" || (role === "doctor"
     ? !!form.specialization.trim()
     : Number(form.age) > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0);
   async function submit() {
-    if (!/^\d{4}$/.test(form.password)) {
+    if (!/^\d{4}$/.test(form.pin)) {
       setError("Введите PIN из четырёх цифр.");
       return;
     }
     setBusy(true);
     setError("");
     try {
-      const r =
-        legacyPIN
-          ? await api.setPIN(form.email, currentPassword, form.password)
-          : mode === "login"
-          ? await api.login(form.email, form.password)
+      const r = mode === "login"
+          ? await api.login(form.email, form.pin)
           : await api.register({
               ...form,
               role,
@@ -377,14 +372,14 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
       >
         <View style={[s.authCard, compact && s.authCardCompact]}>
           <Text style={[s.cardTitle, compact && s.authTextLight]}>
-            {legacyPIN ? "Настроить PIN" : mode === "login" ? rememberedName ? `Здравствуйте, ${rememberedName}` : "Вход по PIN" : "Создать профиль"}
+            {mode === "login" ? rememberedName ? `Здравствуйте, ${rememberedName}` : "Вход по PIN" : "Создать профиль"}
           </Text>
           <Text style={[s.cardHint, compact && s.authHintLight]}>
-            {legacyPIN ? "Введите прежний пароль один раз и придумайте новый PIN." : mode === "login"
+            {mode === "login"
               ? remembered ? "Введите PIN, чтобы открыть приложение." : "Укажите логин один раз и введите PIN."
               : "Выберите роль, заполните данные и придумайте PIN из четырёх цифр."}
           </Text>
-          {mode === "register" && !legacyPIN && (
+          {mode === "register" && (
             <>
               <View style={[s.segment, compact && s.segmentOnDark]}>
                 <Segment
@@ -459,34 +454,29 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
               )}
             </>
           )}
-          {(!remembered || mode === "register" || legacyPIN) && (
+          {(!remembered || mode === "register") && (
             <Field label="Логин" dark={compact} autoCapitalize="none" value={form.email} onChangeText={(v: string) => setForm({ ...form, email: v })}/>
           )}
-          {legacyPIN ? <Field label="Текущий пароль" dark={compact} secureTextEntry value={currentPassword} onChangeText={setCurrentPassword}/> : null}
-          <PinPad value={form.password} dark={compact} onChange={(password) => setForm({ ...form, password })}/>
+          <PinPad value={form.pin} dark={compact} onChange={(pin) => setForm({ ...form, pin })}/>
           {error ? <Text style={s.error}>{error}</Text> : null}
           <Button
             label={
               busy
                 ? "Подождите…"
-                : legacyPIN
-                  ? "Сохранить PIN и войти"
                 : mode === "login"
                   ? "Войти"
                   : "Зарегистрироваться"
             }
             onPress={submit}
-            disabled={busy || form.password.length !== 4 || !form.email.trim() || (legacyPIN && !currentPassword) || !registrationReady}
+            disabled={busy || form.pin.length !== 4 || !form.email.trim() || !registrationReady}
           />
-          {mode === "login" && !remembered && !legacyPIN ? <Pressable accessibilityRole="button" style={[s.textButton,compact&&s.authTextButtonCompact]} onPress={() => { setLegacyPIN(true); setForm({...form,password:""}); setError(""); }}><Text style={[s.switchText, compact && s.switchTextOnDark]}>Настроить PIN для существующего аккаунта</Text></Pressable> : null}
-          {legacyPIN ? <Pressable accessibilityRole="button" style={[s.textButton,compact&&s.authTextButtonCompact]} onPress={() => { setLegacyPIN(false); setCurrentPassword(""); setForm({...form,password:""}); setError(""); }}><Text style={[s.switchText, compact && s.switchTextOnDark]}>Назад ко входу</Text></Pressable> : null}
-          {mode === "login" && remembered ? <Pressable accessibilityRole="button" style={[s.textButton,compact&&s.authTextButtonCompact]} onPress={() => { setRemembered(""); setRememberedName(""); setForm({...form,email:"",password:""}); if (Platform.OS === "web" && typeof localStorage !== "undefined") { localStorage.removeItem(LAST_LOGIN_KEY); localStorage.removeItem(LAST_NAME_KEY); } }}><Text style={[s.switchText, compact && s.switchTextOnDark]}>Сменить пользователя</Text></Pressable> : null}
-          {!legacyPIN && <Pressable
+          {mode === "login" && remembered ? <Pressable accessibilityRole="button" style={[s.textButton,compact&&s.authTextButtonCompact]} onPress={() => { setRemembered(""); setRememberedName(""); setForm({...form,email:"",pin:""}); if (Platform.OS === "web" && typeof localStorage !== "undefined") { localStorage.removeItem(LAST_LOGIN_KEY); localStorage.removeItem(LAST_NAME_KEY); } }}><Text style={[s.switchText, compact && s.switchTextOnDark]}>Сменить пользователя</Text></Pressable> : null}
+          <Pressable
             accessibilityRole="button"
             style={[s.textButton, compact && s.authTextButtonCompact]}
             onPress={() => {
               setMode(mode === "login" ? "register" : "login");
-              setForm({...form,password:"",email: mode === "register" ? remembered : form.email});
+              setForm({...form,pin:"",email: mode === "register" ? remembered : form.email});
               setError("");
             }}
           >
@@ -495,7 +485,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
                 ? "Нет аккаунта? Создать"
                 : "Уже есть аккаунт? Войти"}
             </Text>
-          </Pressable>}
+          </Pressable>
         </View>
       </ScrollView>
       {compact ? <Text style={s.authVersionCompact}>LAB HEALTH · v{APP_VERSION}</Text> : null}
@@ -942,7 +932,7 @@ function DoctorPatients({ patientsAnalyses, consultations, onOpen, onRefresh }: 
 }
 
 function AIWorkspace(){const [chats,setChats]=useState<AIChat[]>([]);const [active,setActive]=useState<AIChat|null>(null);const [message,setMessage]=useState("");const [title,setTitle]=useState("");const [busy,setBusy]=useState(false);const [listening,setListening]=useState(false);const load=()=>api.aiChats().then(setChats).catch(()=>setChats([]));useEffect(()=>{void load()},[]);async function open(chat:AIChat){setActive(await api.aiChat(chat.id));setTitle(chat.title)}async function create(){const c=await api.createAIChat();setActive(c);setTitle(c.title);void load()}async function send(){if(!active||!message.trim())return;const text=message.trim();setMessage("");setBusy(true);try{await api.aiMessage(active.id,text);setActive(await api.aiChat(active.id));void load()}catch(e){setMessage(text);Alert.alert("AI недоступен",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}async function rename(){if(active&&title.trim()){await api.renameAIChat(active.id,title.trim());setActive({...active,title:title.trim()});void load()}}async function remove(){if(!active)return;await api.deleteAIChat(active.id);setActive(null);void load()}
-  return <><ScrollView contentContainerStyle={s.scroll}><View style={s.rowBetween}><View><Text style={s.sectionTitle}>Беседы с AI</Text><Text style={s.sectionIntro}>Клиническое рассуждение и подготовка вопросов. Решение всегда принимает врач.</Text></View><Button compact icon="add" label="Новая консультация" onPress={()=>void create()}/></View>{chats.map(c=><Pressable key={c.id} style={s.aiChatCard} onPress={()=>void open(c)}><View style={s.aiChatIcon}><Ionicons name="sparkles" size={22} color={colors.white}/></View><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{c.title}</Text><Text style={s.analysisMeta}>{new Date(c.updated_at).toLocaleString("ru-RU")}</Text><Text numberOfLines={2} style={s.analysisSummary}>{c.messages?.[0]?.content||"Новая беседа"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>)}</ScrollView><Modal visible={!!active} animationType="slide" onRequestClose={()=>setActive(null)}><SafeAreaView style={s.chatPage}><View style={s.chatHeader}><Pressable style={s.iconButton} onPress={()=>setActive(null)}><Ionicons name="arrow-back" size={24}/></Pressable><TextInput style={s.chatTitleInput} value={title} onChangeText={setTitle} onBlur={()=>void rename()}/><Pressable style={s.iconButton} onPress={()=>void remove()}><Ionicons name="trash-outline" size={22} color={colors.coral}/></Pressable></View><ScrollView style={{flex:1}} contentContainerStyle={s.messages}>{active?.messages.map((m,i)=><View key={i} style={[s.messageBubble,m.role==="user"?s.userBubble:s.assistantBubble]}><Text style={[s.body,m.role==="user"&&{color:colors.white}]}>{m.content}</Text><Text style={[s.messageTime,m.role==="user"&&{color:"#FFFFFFAA"}]}>{new Date(m.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}{busy&&<View style={[s.messageBubble,s.assistantBubble]}><ActivityIndicator color={colors.violet}/></View>}</ScrollView><View style={s.chatComposer}><Pressable style={s.iconButton} onPress={()=>startDictation(setMessage,setListening)}><Ionicons name={listening?"radio":"mic-outline"} size={23} color={colors.violet}/></Pressable><TextInput multiline style={s.chatInput} placeholder="Сообщение AI…" value={message} onChangeText={setMessage}/><Pressable disabled={busy||!message.trim()} style={s.sendButton} onPress={()=>void send()}><Ionicons name="arrow-up" size={22} color={colors.white}/></Pressable></View></SafeAreaView></Modal></>
+  return <><ScrollView contentContainerStyle={s.scroll}><View style={s.aiWorkspaceHeader}><View style={s.aiWorkspaceCopy}><Text style={s.sectionTitle}>Беседы с AI</Text><Text style={s.sectionIntro}>Клиническое рассуждение и подготовка вопросов. Решение всегда принимает врач.</Text></View><Button compact icon="add" label="Новая консультация" onPress={()=>void create()}/></View>{chats.map(c=><Pressable key={c.id} style={s.aiChatCard} onPress={()=>void open(c)}><View style={s.aiChatIcon}><Ionicons name="sparkles" size={22} color={colors.white}/></View><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{c.title}</Text><Text style={s.analysisMeta}>{new Date(c.updated_at).toLocaleString("ru-RU")}</Text><Text numberOfLines={2} style={s.analysisSummary}>{c.messages?.[0]?.content||"Новая беседа"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>)}{!chats.length&&<Empty icon="sparkles-outline" title="Бесед пока нет" text="Создайте консультацию, чтобы обсудить клинический вопрос с AI."/>}</ScrollView><Modal visible={!!active} animationType="slide" onRequestClose={()=>setActive(null)}><SafeAreaView style={s.chatPage}><View style={s.chatHeader}><Pressable style={s.iconButton} onPress={()=>setActive(null)}><Ionicons name="arrow-back" size={24}/></Pressable><TextInput style={s.chatTitleInput} value={title} onChangeText={setTitle} onBlur={()=>void rename()}/><Pressable style={s.iconButton} onPress={()=>void remove()}><Ionicons name="trash-outline" size={22} color={colors.coral}/></Pressable></View><ScrollView style={{flex:1}} contentContainerStyle={s.messages}>{active?.messages.map((m,i)=><View key={i} style={[s.messageBubble,m.role==="user"?s.userBubble:s.assistantBubble]}><Text style={[s.body,m.role==="user"&&{color:colors.white}]}>{m.content}</Text><Text style={[s.messageTime,m.role==="user"&&{color:"#FFFFFFAA"}]}>{new Date(m.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}{busy&&<View style={[s.messageBubble,s.assistantBubble]}><ActivityIndicator color={colors.violet}/></View>}</ScrollView><View style={s.chatComposer}><Pressable style={s.iconButton} onPress={()=>startDictation(setMessage,setListening)}><Ionicons name={listening?"radio":"mic-outline"} size={23} color={colors.violet}/></Pressable><TextInput multiline style={s.chatInput} placeholder="Сообщение AI…" value={message} onChangeText={setMessage}/><Pressable disabled={busy||!message.trim()} style={s.sendButton} onPress={()=>void send()}><Ionicons name="arrow-up" size={22} color={colors.white}/></Pressable></View></SafeAreaView></Modal></>
 }
 
 function Guides(){
@@ -1606,7 +1596,7 @@ function SupportChat({ onBack, compact = false }: { onBack: () => void; compact?
     } finally { setBusy(false); }
   }
   const visibleMessages = searchValue.trim() ? messages.filter((message) => message.text.toLocaleLowerCase("ru-RU").includes(searchValue.trim().toLocaleLowerCase("ru-RU"))) : messages;
-  return <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={[s.supportPage, compact && s.supportPageCompact]}>
+  return <KeyboardAvoidingView testID="support-page" behavior={Platform.OS === "ios" ? "padding" : undefined} style={[s.supportPage, compact && s.supportPageCompact]}>
     <View style={s.supportHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" onPress={onBack} style={s.supportHeaderButton}><Ionicons name="arrow-back" size={27} color={colors.ink}/></Pressable><Text style={s.supportTitle}>Чат с Lab HEALTH</Text><Pressable accessibilityRole="button" accessibilityLabel="Поиск по сообщениям" onPress={()=>setSearchOpen((value)=>!value)} style={s.supportHeaderButton}><Ionicons name={searchOpen?"close":"search"} size={26} color={colors.ink}/></Pressable></View>
     {searchOpen && <View style={s.supportSearch}><Ionicons name="search" size={19} color={colors.muted}/><TextInput autoFocus style={s.supportSearchInput} placeholder="Поиск в чате" value={searchValue} onChangeText={setSearchValue}/></View>}
     <ScrollView ref={listRef} style={{flex:1}} contentContainerStyle={s.supportMessages} onContentSizeChange={() => listRef.current?.scrollToEnd({animated:false})}>
@@ -1670,7 +1660,7 @@ function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) =>
     ? ({ bottom: 0, height: "calc(66px + env(safe-area-inset-bottom, 0px))", paddingBottom: "env(safe-area-inset-bottom, 0px)" } as any)
     : { bottom: 0, height: 66 + insets.bottom, paddingBottom: insets.bottom };
   return (
-    <View style={[s.bottom, dockInsets]}>
+    <View testID="bottom-nav" style={[s.bottom, dockInsets]}>
       {tabsFor(role).map((t) => (
         <Pressable
           key={t}
@@ -2925,6 +2915,8 @@ const s = StyleSheet.create({
   noteCard: { backgroundColor: colors.white, borderRadius: 18, padding: 16, borderLeftWidth: 4, borderLeftColor: colors.aqua, ...shadow },
   aiChatCard: { minHeight: 92, padding: 15, borderRadius: 20, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, flexDirection: "row", alignItems: "center", gap: 13, ...shadow },
   aiChatIcon: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.violet },
+  aiWorkspaceHeader: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
+  aiWorkspaceCopy: { flex: 1, minWidth: 220, maxWidth: 680, gap: 2 },
   chatPage: { flex: 1, backgroundColor: colors.paper },
   chatHeader: { minHeight: 68, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.line },
   chatTitleInput: { flex: 1, fontSize: 17, fontWeight: "800", color: colors.ink, padding: 10 },
