@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.7.1";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.7.2";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
@@ -775,7 +775,7 @@ function Analyses({
       <Modal visible={infoOpen} animationType="slide" onRequestClose={()=>setInfoOpen(false)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setInfoOpen(false)}><Ionicons name="arrow-back" size={25}/></Pressable><Text style={s.fullScreenTitle}>Ваше состояние</Text><View style={s.iconButton}/></View><ScrollView contentContainerStyle={s.fullScreenBody}>{data.map((analysis)=><View key={analysis.id} style={s.aiRecommendation}><View style={s.rowBetween}><Text style={s.reviewTitle}>{analysis.title}</Text><Text style={s.analysisMeta}>{date(analysis.created_at)}</Text></View><Text style={s.body}>{analysis.ai_review?.summary||"Автоматическая сводка отсутствует."}</Text>{analysis.ai_review?.lifestyle?.map((x,i)=><Text key={`l-${i}`} style={s.body}>• {x}</Text>)}{analysis.ai_review?.nutrition?.map((x,i)=><Text key={`n-${i}`} style={s.body}>• {x}</Text>)}{analysis.ai_review?.suggested_specialty?<Text style={s.specialtyLine}>Обсудить со специалистом: {analysis.ai_review.suggested_specialty}</Text>:null}</View>)}<Text style={s.aiDisclaimer}>Информация сформирована автоматически по распознанным данным и не является диагнозом. Сверяйте значения с оригинальными бланками.</Text></ScrollView></SafeAreaView></Modal>
       <Modal visible={!!marker} animationType="slide" onRequestClose={()=>setMarker("")}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setMarker("")}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{marker}</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.dynamicDetailBody}>{series.length ? <><View style={s.dynamicCurrent}><Text style={s.dynamicCurrentValue}>{series[series.length-1]?.value} {series[series.length-1]?.unit}</Text><Text style={s.analysisMeta}>Последний результат · {date(series[series.length-1]!.date)}</Text></View><DynamicsChart series={series}/><Text style={s.dynamicHistoryTitle}>История результатов</Text><View style={s.dynamicHistory}>{[...series].reverse().map((point,index)=><View key={`${point.date}-${index}`} style={s.dynamicHistoryRow}><View><Text style={s.dynamicHistoryDate}>{date(point.date)}</Text><Text style={[s.dynamicHistoryStatus,point.status!=="normal"&&{color:colors.coral}]}>{markerStatusText(point.status)} · {point.reference}</Text></View><Text style={s.dynamicHistoryValue}>{point.value} {point.unit}</Text></View>)}</View></>:null}</ScrollView></SafeAreaView></Modal>
     </ScrollView>
-    {!doctor && !infoOpen && !marker && <View style={s.uploadDock}><Button label="Загрузить анализ" icon="cloud-upload-outline" onPress={onUpload}/></View>}
+    {!doctor && !infoOpen && !marker && <View style={[s.uploadDock, Platform.OS === "web" && s.uploadDockWeb]}><Button label="Загрузить анализ" icon="cloud-upload-outline" onPress={onUpload}/></View>}
     </View>
   );
 }
@@ -1666,11 +1666,11 @@ function Sidebar({
 }
 function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) => void }) {
   const insets = useSafeAreaInsets();
-  const bottomOffset = Platform.OS === "web"
-    ? ({ bottom: "max(env(safe-area-inset-bottom), 8px)" } as any)
-    : { bottom: Math.max(insets.bottom, 8) };
+  const dockInsets = Platform.OS === "web"
+    ? ({ bottom: 0, height: "calc(66px + env(safe-area-inset-bottom, 0px))", paddingBottom: "env(safe-area-inset-bottom, 0px)" } as any)
+    : { bottom: 0, height: 66 + insets.bottom, paddingBottom: insets.bottom };
   return (
-    <View style={[s.bottom, bottomOffset]}>
+    <View style={[s.bottom, dockInsets]}>
       {tabsFor(role).map((t) => (
         <Pressable
           key={t}
@@ -2044,17 +2044,22 @@ const s = StyleSheet.create({
   sidebarName: { fontWeight: "700", color: colors.ink },
   bottom: {
     position: "absolute",
-    left: 12,
-    right: 12,
+    left: 8,
+    right: 8,
+    bottom: 0,
     zIndex: 100,
-    height: 76,
+    height: 66,
     flexDirection: "row",
-    borderRadius: 25,
+    borderTopLeftRadius: 25,
+    borderTopRightRadius: 25,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     paddingHorizontal: 7,
-    paddingVertical: 6,
+    paddingTop: 3,
     gap: 2,
-    backgroundColor: "#FFFFFFF5",
+    backgroundColor: "#FFFFFFFA",
     borderWidth: 1,
+    borderBottomWidth: 0,
     borderColor: "#E4E7F0",
     shadowColor: "#17214B",
     shadowOpacity: .14,
@@ -2064,7 +2069,7 @@ const s = StyleSheet.create({
   },
   bottomItem: {
     flex: 1,
-    minHeight: 62,
+    height: 62,
     alignItems: "center",
     justifyContent: "center",
     gap: 2,
@@ -2247,9 +2252,11 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   authAsideCompact: {
-    flex: 0,
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 180,
     width: "100%",
-    height: 274,
+    height: 180,
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 16,
@@ -2274,8 +2281,8 @@ const s = StyleSheet.create({
     backgroundColor: "#20C4B52C",
   },
   authLabSheet: { position: "absolute", width: 122, height: 76, padding: 13, borderRadius: 18, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#FFFFFF13", borderWidth: 1, borderColor: "#FFFFFF20" },
-  authLabSheetOne: { right: -24, top: 92, transform: [{rotate:"8deg"}] },
-  authLabSheetTwo: { left: -34, top: 68, transform: [{rotate:"-9deg"}] },
+  authLabSheetOne: { right: -24, top: 20, transform: [{rotate:"8deg"}] },
+  authLabSheetTwo: { left: -34, top: 18, transform: [{rotate:"-9deg"}] },
   authLabLine: { width: 54, height: 5, borderRadius: 3, marginVertical: 3, backgroundColor: "#FFFFFF35" },
   authMedicalCross: { position: "absolute", right: 34, top: 178, width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#25AFA044" },
   authVersion: {
@@ -2290,7 +2297,9 @@ const s = StyleSheet.create({
     color: "#A9D9C7",
   },
   authVersionCompact: {
-    flex: 0,
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 27,
     height: 27,
     paddingTop: 3,
     textAlign: "center",
@@ -2313,9 +2322,9 @@ const s = StyleSheet.create({
     position: "absolute",
     left: 18,
     right: 18,
-    bottom: 18,
-    fontSize: 27,
-    lineHeight: 32,
+    bottom: 12,
+    fontSize: 24,
+    lineHeight: 29,
     letterSpacing: -0.8,
     marginTop: 0,
     maxWidth: 345,
@@ -2437,15 +2446,15 @@ const s = StyleSheet.create({
     fontWeight: "700",
   },
   switchTextOnDark: { color: "#D8E4FF" },
-  pinBlock: { width: "100%", marginBottom: 14 },
-  pinDots: { height: 30, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, marginTop: 2, marginBottom: 5 },
+  pinBlock: { width: "100%", marginBottom: 12 },
+  pinDots: { height: 34, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 19, marginTop: 1, marginBottom: 7 },
   pinDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: colors.muted, backgroundColor: "transparent" },
   pinDotOnDark: { borderColor: "#FFFFFF78" },
   pinDotFilled: { borderColor: colors.aqua, backgroundColor: colors.aqua },
-  pinGrid: { width: 264, alignSelf: "center", flexDirection: "row", flexWrap: "wrap", justifyContent: "center" },
-  pinKey: { width: 88, height: 40, alignItems: "center", justifyContent: "center" },
-  pinKeyOnDark: { backgroundColor: "transparent" },
-  pinKeyText: { color: colors.ink, fontSize: 26, lineHeight: 32, fontWeight: "600" },
+  pinGrid: { width: "100%", maxWidth: 360, alignSelf: "center", flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 7 },
+  pinKey: { width: "31%", height: 52, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  pinKeyOnDark: { backgroundColor: "#FFFFFF10", borderWidth: 1, borderColor: "#FFFFFF17" },
+  pinKeyText: { color: colors.ink, fontSize: 27, lineHeight: 33, fontWeight: "600" },
   textButton: {
     minHeight: 48,
     marginTop: 8,
@@ -2738,7 +2747,8 @@ const s = StyleSheet.create({
   registrationVitals: { width: "100%", flexDirection: "column", gap: 2 },
   analysisPage: { flex: 1, minWidth: 0, backgroundColor: colors.paper },
   analysisScrollContent: { paddingBottom: 112 },
-  uploadDock: { position: "absolute", left: 16, right: 16, bottom: 92, maxWidth: 520, alignSelf: "center", padding: 7, borderRadius: 20, backgroundColor: "#FFFFFFF2", ...shadow },
+  uploadDock: { position: "absolute", left: 16, right: 16, bottom: 102, maxWidth: 520, alignSelf: "center", padding: 7, borderRadius: 20, backgroundColor: "#FFFFFFF2", ...shadow },
+  uploadDockWeb: { bottom: "calc(76px + env(safe-area-inset-bottom, 0px))" } as any,
   patientHome: { flex: 1, width: "100%", maxWidth: 920, alignSelf: "center", overflow: "hidden", backgroundColor: "transparent" },
   patientHomeCompact: { maxWidth: "100%" },
   patientWelcome: { minHeight: 238, paddingHorizontal: 28, paddingTop: 20, paddingBottom: 42, justifyContent: "center", gap: 15 },
@@ -2746,7 +2756,7 @@ const s = StyleSheet.create({
   welcomeIdentity: { flexDirection: "row", alignItems: "center", gap: 11 },
   profileGlyph: { width: 34, height: 38, alignItems: "center", justifyContent: "center" },
   homeDiscovery: { flex: 1, minHeight: 0, marginTop: -24, padding: 20, paddingBottom: 24, gap: 14, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: "#F3F4FA", overflow: "hidden" },
-  homeDiscoveryCompact: { padding: 12, paddingTop: 14, paddingBottom: 96, gap: 11, borderTopLeftRadius: 28, borderTopRightRadius: 28 },
+  homeDiscoveryCompact: { padding: 12, paddingTop: 14, paddingBottom: 110, gap: 11, borderTopLeftRadius: 28, borderTopRightRadius: 28 },
   homeUpdates: { gap: 9 },
   homeUpdateMain: { minHeight: 70, padding: 11, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 18, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.violetSoft },
   homeUpdateOnGradient: { backgroundColor: "#FFFFFFF2", borderColor: "#FFFFFF4A" },
@@ -2888,7 +2898,7 @@ const s = StyleSheet.create({
   guidelineGrid: { gap: 11 },
   guidelineCard: { minHeight: 84, borderRadius: 20, padding: 15, flexDirection: "row", alignItems: "center", gap: 13, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, ...shadow },
   schedulePage: { flex: 1, padding: 18, gap: 12, maxWidth: 1280, width: "100%", alignSelf: "center" },
-  schedulePageCompact: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 96 },
+  schedulePageCompact: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 110 },
   doctorWelcome: { minHeight: 84, borderRadius: 22, paddingHorizontal: 22, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   doctorWelcomeCompact: { minHeight: 74, borderRadius: 18, paddingHorizontal: 16 },
   doctorWelcomeTitle: { color: colors.white, fontSize: 21, fontWeight: "800", marginTop: 4 },
@@ -2927,7 +2937,7 @@ const s = StyleSheet.create({
   chatInput: { flex: 1, minWidth: 0, maxHeight: 120, minHeight: 48, borderRadius: 17, backgroundColor: colors.paper, paddingHorizontal: 15, paddingVertical: 12, color: colors.ink, fontSize: 16, lineHeight: 21 },
   sendButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.violet, alignItems: "center", justifyContent: "center" },
   supportPage: { flex: 1, minHeight: 0, backgroundColor: colors.white },
-  supportPageCompact: { paddingBottom: 92 },
+  supportPageCompact: { paddingBottom: 106 },
   supportHeader: { minHeight: 74, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.white },
   supportHeaderButton: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   supportTitle: { flex: 1, color: colors.ink, fontSize: 20, fontWeight: "900" },
