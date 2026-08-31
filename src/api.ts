@@ -3,19 +3,13 @@ import { ActivitySurvey, AIChat, AIMessage, Analysis, ClinicalAssistResult, Cons
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080/api/v1";
-const TOKEN_KEY = "lab.session";
 let token = "";
 export async function restoreToken() {
-  if (Platform.OS === "web" && typeof localStorage !== "undefined")
-    token = localStorage.getItem(TOKEN_KEY) || "";
+  if (Platform.OS === "web" && typeof localStorage !== "undefined") localStorage.removeItem("lab.session");
   return token;
 }
 export async function setToken(value: string) {
   token = value;
-  if (Platform.OS === "web" && typeof localStorage !== "undefined") {
-    if (value) localStorage.setItem(TOKEN_KEY, value);
-    else localStorage.removeItem(TOKEN_KEY);
-  }
 }
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
@@ -61,6 +55,8 @@ export const api = {
   me: () => request<User>("/me"),
   updatePatientProfile: (value: { age: number; heightCM: number; weightKG: number; activity: ActivitySurvey; nutrition: NutritionSurvey }) =>
     request<User>("/me/patient-profile", { method: "PATCH", body: JSON.stringify(value) }),
+  updateContactProfile: (value: { fullName: string; phone: string; residentialAddress: string }) =>
+    request<User>("/me/contact-profile", { method: "PATCH", body: JSON.stringify(value) }),
   uploadAvatar: async (asset: { uri: string; name: string; mimeType?: string; file?: Blob }) => {
     const form=new FormData(); if(Platform.OS==="web"){let file=asset.file;if(!file){file=await (await fetch(asset.uri)).blob()}form.append("file",file,asset.name)}else{form.append("file",{uri:asset.uri,name:asset.name,type:asset.mimeType||"image/jpeg"} as unknown as Blob)};return request<User>("/me/avatar",{method:"POST",body:form});
   },

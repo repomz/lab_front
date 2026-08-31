@@ -10,7 +10,6 @@ import {
   Modal as NativeModal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView as NativeScrollView,
   StyleSheet,
   Text,
@@ -18,6 +17,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.5.9";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.6.0";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
 type AgeBand = "under20" | "20s" | "30s" | "40s" | "50s" | "60s" | "70s" | "80s";
 const activityImages: Record<AgeBand, number[]> = {
@@ -100,6 +100,10 @@ const tabsFor = (role: Role): Tab[] => role === "doctor"
   : ["home", "analyses", "consultations", "doctors", "profile"];
 
 export default function App() {
+  return <SafeAreaProvider><AppContent /></SafeAreaProvider>;
+}
+
+function AppContent() {
   const [boot, setBoot] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [tab, setTab] = useState<Tab>("home");
@@ -118,13 +122,6 @@ export default function App() {
     const [a, c] = await Promise.all([api.analyses(), api.consultations()]);
     setAnalyses(a);
     setConsultations(c);
-  }
-  async function logout() {
-    await setToken("");
-    setUser(null);
-    setTab("home");
-    setAnalyses([]);
-    setConsultations([]);
   }
   function requestDelete(item: Analysis) {
     const remove = async () => {
@@ -216,23 +213,23 @@ export default function App() {
     ) : tab === "guides" ? (
       <Guides />
     ) : user.role === "patient" ? (
-      <SupportChat onBack={() => setTab("home")} onLogout={logout} />
+      <SupportChat onBack={() => setTab("home")} />
     ) : (
       <Profile
         user={user}
         onUpdated={setUser}
-        onLogout={logout}
       />
     );
   const immersiveHeader = tab === "home";
+  const screenBackground = tab === "profile" && user.role === "patient" ? colors.white : colors.paper;
   const chromeColors: readonly [string, string, ...string[]] = immersiveHeader
     ? ["#17214B", "#3C3A86", "#147D83"]
-    : ["#DCE7FF", "#EEEAFB", "#DFF3EF"];
-  const chromeBackground = immersiveHeader ? "#17214B" : "#E7ECFA";
+    : [screenBackground, screenBackground];
+  const chromeBackground = immersiveHeader ? "#17214B" : screenBackground;
   return (
     <LinearGradient colors={chromeColors} start={{x:0,y:0}} end={{x:1,y:1}} style={s.safe}>
       <SystemChrome dark={immersiveHeader} background={chromeBackground} />
-      <SafeAreaView style={s.safeInner}>
+      <SafeAreaView edges={["top"]} style={s.safeInner}>
       <View style={s.shell}>
         {desktop && <Sidebar user={user} tab={tab} onTab={setTab} />}
         <View style={s.main}>
@@ -310,11 +307,11 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
     }
   }
   return (
-    <View style={[s.authOuter, compact && s.authOuterCompact]}>
+    <LinearGradient colors={["#17214B", "#3D367A", "#146E78"]} start={{x:0,y:0}} end={{x:1,y:1}} style={[s.authOuter, compact && s.authOuterCompact]}>
       <SystemChrome dark={compact} background={compact ? "#17214B" : colors.paper} />
     <SafeAreaView style={[s.authPage, compact && s.authPageCompact]}>
       <LinearGradient
-        colors={["#17214B", "#3D367A", "#146E78"]}
+        colors={compact ? ["transparent", "transparent"] : ["#17214B", "#3D367A", "#146E78"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[s.authAside, compact && s.authAsideCompact]}
@@ -482,7 +479,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
         </View>
       </ScrollView>
     </SafeAreaView>
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -508,6 +505,7 @@ function Home({
   onOpenDoctor: (doctorID: string) => void;
 }) {
   const [wellness, setWellness] = useState<"activity" | "nutrition" | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const age = user.patient_profile?.age || 35;
   const ageTone = age < 40 ? "young" : age < 65 ? "middle" : "senior";
   const ageGroup = activityBand(age);
@@ -520,13 +518,11 @@ function Home({
   }
   return (
     <View style={[s.patientHome, compact && s.patientHomeCompact]}>
-      <LinearGradient
-        colors={["#17214B", "#3C3A86", "#147D83"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[s.patientWelcome, compact && s.patientWelcomeCompact]}
-      >
-        <View>
+      <View style={[s.patientWelcome, compact && s.patientWelcomeCompact]}>
+        <View style={s.welcomeIdentity}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Открыть профиль" hitSlop={10} onPress={() => setProfileOpen(true)} style={s.profileGlyph}>
+            <Ionicons name="person-outline" size={30} color={colors.white} />
+          </Pressable>
           <Text style={[s.welcomeTitle, compact && s.welcomeTitleCompact]}>
             Здравствуйте, {firstName(user.full_name)}
           </Text>
@@ -542,14 +538,27 @@ function Home({
             {answered && <Pressable onPress={() => onOpenVisit(answered)} style={s.homeReminder}><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.aqua}/><View style={{flex:1}}><Text style={s.homeReminderLabel}>Ответ врача</Text><Text numberOfLines={1} style={s.homeReminderText}>Открыть переписку</Text></View></Pressable>}
           </View>}
         </View>
-      </LinearGradient>
+      </View>
       <View style={[s.homeDiscovery, compact && s.homeDiscoveryCompact]}>
         <WellnessPhotoCard ageBand={ageGroup} onPress={() => setWellness("activity")} />
         <NutritionMediaCard ageTone={ageTone} onPress={() => setWellness("nutrition")} />
       </View>
       <WellnessModal kind={wellness} user={user} analyses={analyses} onClose={() => setWellness(null)} onUser={onUser} />
+      <PatientProfileModal visible={profileOpen} user={user} onUpdated={onUser} onClose={() => setProfileOpen(false)} />
     </View>
   );
+}
+
+function PatientProfileModal({ visible, user, onUpdated, onClose }: { visible: boolean; user: User; onUpdated: (user: User) => void; onClose: () => void }) {
+  return <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <SafeAreaView style={s.fullScreenModal}>
+      <View style={s.fullScreenHeader}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25}/></Pressable>
+        <Text style={s.fullScreenTitle}>Профиль</Text><View style={s.headerSpacer}/>
+      </View>
+      <Profile user={user} onUpdated={onUpdated} />
+    </SafeAreaView>
+  </Modal>;
 }
 
 function WellnessPhotoCard({ ageBand, onPress }: { ageBand: AgeBand; onPress: () => void }) {
@@ -1041,8 +1050,11 @@ function ConsentControls({ personal, medical, onPersonal, onMedical }: { persona
   </>;
 }
 
-function Profile({ user, onUpdated, onLogout }: { user: User; onUpdated: (u: User) => void; onLogout: () => void }) {
+function Profile({ user, onUpdated }: { user: User; onUpdated: (u: User) => void }) {
   const profile = user.patient_profile;
+  const [fullName, setFullName] = useState(user.full_name);
+  const [phone, setPhone] = useState(user.phone || "");
+  const [address, setAddress] = useState(user.residential_address || "");
   const [age, setAge] = useState(profile ? String(profile.age) : "");
   const [height, setHeight] = useState(profile ? String(profile.height_cm) : "");
   const [weight, setWeight] = useState(profile ? String(profile.weight_kg) : "");
@@ -1055,7 +1067,12 @@ function Profile({ user, onUpdated, onLogout }: { user: User; onUpdated: (u: Use
   }
   async function saveProfile() {
     setBusy(true);
-    try { const updated = await api.updatePatientProfile({ age: Number(age), heightCM: Number(height), weightKG: Number(weight), activity: profile?.activity || { regular_sport: false }, nutrition: profile?.nutrition || {} }); onUpdated(updated); }
+    try {
+      let updated = await api.updateContactProfile({ fullName, phone, residentialAddress: address });
+      if (user.role === "patient") updated = await api.updatePatientProfile({ age: Number(age), heightCM: Number(height), weightKG: Number(weight), activity: profile?.activity || { regular_sport: false }, nutrition: profile?.nutrition || {} });
+      onUpdated(updated);
+      Alert.alert("Готово", "Данные профиля сохранены.");
+    }
     catch (e) { Alert.alert("Не удалось сохранить", e instanceof Error ? e.message : "Ошибка"); }
     finally { setBusy(false); }
   }
@@ -1065,9 +1082,9 @@ function Profile({ user, onUpdated, onLogout }: { user: User; onUpdated: (u: Use
         {user.role === "doctor" && <AvatarView user={user} size={92}/>}<Text style={s.profileHeroName}>{user.full_name}</Text><Text style={s.profileHeroMeta}>{user.role==="doctor"?user.specialization:"Пациент"}</Text>
       </LinearGradient>
       <View style={s.profileCard}>
+        <View style={s.profileVitals}><Text style={s.surveyTitle}>Контактные данные</Text><Field label="Имя" value={fullName} onChangeText={setFullName}/><Field label="Почта" value={user.email} editable={false}/><Field label="Мобильный телефон" keyboardType="phone-pad" placeholder="+7 900 000-00-00" value={phone} onChangeText={setPhone}/><Field label="Адрес проживания" placeholder="Город, улица, дом, квартира" value={address} onChangeText={setAddress}/></View>
         {user.role === "doctor" && <><Text style={s.surveyTitle}>Фото профиля</Text><View style={s.profilePhotoActions}><MiniAction label="Камера" icon="camera-outline" onPress={()=>void chooseAvatar("camera")}/><MiniAction label="Галерея" icon="images-outline" onPress={()=>void chooseAvatar("gallery")}/></View></>}
-        {user.role === "patient" && <View style={s.profileVitals}><Text style={s.surveyTitle}>Показатели профиля</Text><View style={s.registrationVitals}><Field label="Возраст" keyboardType="number-pad" value={age} onChangeText={setAge} /><Field label="Рост, см" keyboardType="decimal-pad" value={height} onChangeText={setHeight} /><Field label="Вес, кг" keyboardType="decimal-pad" value={weight} onChangeText={setWeight} /></View>{profile ? <View style={s.bmiCard}><Text style={s.bmiValue}>ИМТ {profile.bmi}</Text><Text style={s.analysisMeta}>Используется только для персонализации рекомендаций, не как диагноз.</Text></View> : null}<Button label={busy ? "Сохраняем…" : "Сохранить профиль"} compact disabled={busy} onPress={() => void saveProfile()} /></View>}
-        <Text style={s.cardHint}>{user.email}</Text>
+        {user.role === "patient" && <View style={s.profileVitals}><Text style={s.surveyTitle}>Показатели здоровья</Text><View style={s.registrationVitals}><Field label="Возраст" keyboardType="number-pad" value={age} onChangeText={setAge} /><Field label="Рост, см" keyboardType="decimal-pad" value={height} onChangeText={setHeight} /><Field label="Вес, кг" keyboardType="decimal-pad" value={weight} onChangeText={setWeight} /></View>{profile ? <View style={s.bmiCard}><Text style={s.bmiValue}>ИМТ {profile.bmi}</Text><Text style={s.analysisMeta}>Используется только для персонализации рекомендаций, не как диагноз.</Text></View> : null}</View>}
         <View style={s.roleBadge}>
           <Text style={s.roleText}>
             {user.role === "doctor"
@@ -1087,7 +1104,7 @@ function Profile({ user, onUpdated, onLogout }: { user: User; onUpdated: (u: Use
             </Text>
           </View>
         )}
-        <Button label="Выйти" kind="ghost" onPress={onLogout} />
+        <Button label={busy ? "Сохраняем…" : "Сохранить изменения"} disabled={busy} onPress={() => void saveProfile()} />
       </View>
     </ScrollView>
   );
@@ -1373,6 +1390,7 @@ function Detail({
   onError: (x: string) => void;
 }) {
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const compact = width < 520;
   const [exporting, setExporting] = useState<"share" | "view" | "print" | null>(null);
   const [pdfURI, setPdfURI] = useState("");
@@ -1452,7 +1470,7 @@ function Detail({
   return (
     <>
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={s.fullScreenModal}>
+      <SafeAreaView edges={["top"]} style={s.fullScreenModal}>
         <View style={s.fullScreenInner}>
           <View style={s.detailHeader}>
             <View style={{ flex: 1 }}>
@@ -1507,7 +1525,7 @@ function Detail({
             )}
           </ScrollView>
           {compact && review ? <View style={s.detailSummaryBox}><Text numberOfLines={7} style={s.detailSummaryText}>{review}</Text></View> : null}
-          <View style={s.detailFooter}>
+          <View style={[s.detailFooter, { paddingBottom: Math.max(insets.bottom, 12) }]}>
             <View style={s.actionRow}>
               <Action
                 icon="share-outline"
@@ -1533,7 +1551,7 @@ function Detail({
   );
 }
 
-function SupportChat({ onBack, onLogout }: { onBack: () => void; onLogout: () => void }) {
+function SupportChat({ onBack }: { onBack: () => void }) {
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [textValue, setTextValue] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1565,7 +1583,7 @@ function SupportChat({ onBack, onLogout }: { onBack: () => void; onLogout: () =>
     <View style={s.supportHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" onPress={onBack} style={s.supportHeaderButton}><Ionicons name="arrow-back" size={27} color={colors.ink}/></Pressable><Text style={s.supportTitle}>Чат с Lab HEALTH</Text><Pressable accessibilityRole="button" accessibilityLabel="Поиск по сообщениям" onPress={()=>setSearchOpen((value)=>!value)} style={s.supportHeaderButton}><Ionicons name={searchOpen?"close":"search"} size={26} color={colors.ink}/></Pressable></View>
     {searchOpen && <View style={s.supportSearch}><Ionicons name="search" size={19} color={colors.muted}/><TextInput autoFocus style={s.supportSearchInput} placeholder="Поиск в чате" value={searchValue} onChangeText={setSearchValue}/></View>}
     <ScrollView ref={listRef} style={{flex:1}} contentContainerStyle={s.supportMessages} onContentSizeChange={() => listRef.current?.scrollToEnd({animated:false})}>
-      {loading ? <ActivityIndicator color={colors.aqua}/> : !messages.length ? <View style={s.supportEmpty}><View style={s.supportMark}><View style={s.supportMarkBack}/><View style={s.supportMarkFront}><Ionicons name="chatbox-ellipses" size={54} color={colors.white}/></View></View><Text style={s.supportEmptyTitle}>Это чат с Lab HEALTH</Text><Text style={s.supportEmptyText}>Задайте вопрос о приложении, загрузке анализов или доступе к медицинским данным</Text><View style={s.supportTopics}><View style={s.supportTopic}><Ionicons name="document-text-outline" size={24} color={colors.aqua}/></View><View style={s.supportTopic}><Ionicons name="shield-checkmark-outline" size={24} color={colors.aqua}/></View><View style={s.supportTopic}><Ionicons name="help-circle-outline" size={25} color={colors.aqua}/></View></View><Pressable accessibilityRole="button" onPress={onLogout}><Text style={s.supportLogoutText}>Выйти из аккаунта</Text></Pressable></View> : visibleMessages.map((message) => <View key={message.id} style={[s.messageBubble,message.sender === "patient" ? s.userBubble : s.assistantBubble,s.supportBubble]}><Text style={[s.body,message.sender === "patient" && {color:colors.white}]}>{message.text}</Text><Text style={[s.messageTime,message.sender === "patient" && {color:"#FFFFFFAA"}]}>{new Date(message.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}
+      {loading ? <ActivityIndicator color={colors.aqua}/> : !messages.length ? <View style={s.supportEmpty}><View style={s.supportMark}><View style={s.supportMarkBack}/><View style={s.supportMarkFront}><Ionicons name="chatbox-ellipses" size={54} color={colors.white}/></View></View><Text style={s.supportEmptyTitle}>Это чат с Lab HEALTH</Text><Text style={s.supportEmptyText}>Задайте вопрос о приложении, загрузке анализов или доступе к медицинским данным</Text><View style={s.supportTopics}><View style={s.supportTopic}><Ionicons name="document-text-outline" size={24} color={colors.aqua}/></View><View style={s.supportTopic}><Ionicons name="shield-checkmark-outline" size={24} color={colors.aqua}/></View><View style={s.supportTopic}><Ionicons name="help-circle-outline" size={25} color={colors.aqua}/></View></View></View> : visibleMessages.map((message) => <View key={message.id} style={[s.messageBubble,message.sender === "patient" ? s.userBubble : s.assistantBubble,s.supportBubble]}><Text style={[s.body,message.sender === "patient" && {color:colors.white}]}>{message.text}</Text><Text style={[s.messageTime,message.sender === "patient" && {color:"#FFFFFFAA"}]}>{new Date(message.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}
     </ScrollView>
     <View style={s.supportComposer}><View style={s.supportComposerIcon}><Ionicons name="chatbubble-ellipses-outline" size={25} color={colors.ink}/></View><TextInput multiline maxLength={4000} style={[s.chatInput,s.supportInput]} placeholder="Ваш вопрос" value={textValue} onChangeText={setTextValue}/><Pressable accessibilityRole="button" accessibilityLabel="Отправить" disabled={busy||!textValue.trim()} style={[s.sendButton,(busy||!textValue.trim())&&s.supportSendDisabled]} onPress={()=>void send()}>{busy?<ActivityIndicator size="small" color={colors.white}/>:<Ionicons name="arrow-up" size={22} color={colors.white}/>}</Pressable></View>
   </KeyboardAvoidingView>;
@@ -1620,8 +1638,9 @@ function Sidebar({
   );
 }
 function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) => void }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={s.bottom}>
+    <View style={[s.bottom, { paddingBottom: Math.max(insets.bottom, 8), minHeight: 66 + insets.bottom }]}>
       {tabsFor(role).map((t) => (
         <Pressable
           key={t}
@@ -1634,11 +1653,11 @@ function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) =>
           ]}
           onPress={() => onTab(t)}
         >
-          <Ionicons
-            name={role === "patient" && t === "profile" ? "chatbubble-ellipses-outline" : icon[t]}
-            size={23}
-            color={tab === t ? colors.brand : colors.muted}
-          />
+          <View style={[s.bottomIcon, tab === t && s.bottomIconActive]}><Ionicons
+              name={role === "patient" && t === "profile" ? "chatbubble-ellipses-outline" : icon[t]}
+              size={23}
+              color={tab === t ? colors.brand : colors.muted}
+            /></View>
           <Text style={[s.bottomText, tab === t && { color: colors.brand }]}>
             {role === "patient" && t === "profile" ? "Чат" : labels[t]}
           </Text>
@@ -1994,27 +2013,23 @@ const s = StyleSheet.create({
   },
   sidebarName: { fontWeight: "700", color: colors.ink },
   bottom: {
-    minHeight: 78,
     flexDirection: "row",
     backgroundColor: colors.white,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    paddingHorizontal: 8,
-    paddingBottom: 8,
-    paddingTop: 7,
-    gap: 4,
-    ...shadow,
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    gap: 2,
   },
   bottomItem: {
     flex: 1,
-    minHeight: 58,
+    minHeight: 56,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    borderRadius: 16,
+    gap: 1,
   },
-  bottomItemActive: { backgroundColor: colors.mint },
-  bottomText: { fontSize: 11, fontWeight: "700", color: colors.muted },
+  bottomItemActive: { backgroundColor: "transparent" },
+  bottomIcon: { minWidth: 42, height: 31, paddingHorizontal: 10, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  bottomIconActive: { backgroundColor: colors.mint },
+  bottomText: { fontSize: 10, lineHeight: 14, fontWeight: "700", color: colors.muted },
   scroll: {
     padding: 28,
     paddingBottom: 110,
@@ -2223,8 +2238,10 @@ const s = StyleSheet.create({
   authMedicalCross: { position: "absolute", right: 34, bottom: 190, width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#25AFA044" },
   authVersion: {
     position: "absolute",
-    top: 22,
-    left: 24,
+    bottom: 11,
+    left: 0,
+    right: 0,
+    textAlign: "center",
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.2,
@@ -2481,11 +2498,7 @@ const s = StyleSheet.create({
   detailFooter: {
     paddingHorizontal: 16,
     paddingTop: 11,
-    paddingBottom: 16,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    backgroundColor: colors.white,
-    ...shadow,
+    backgroundColor: colors.paper,
   },
   detailSummaryBox: { maxHeight: 144, marginHorizontal: 14, marginTop: 8, padding: 13, borderRadius: 17, backgroundColor: colors.violetSoft, borderWidth: 1, borderColor: "#DDD8F5" },
   detailSummaryText: { color: colors.ink, fontSize: 12, lineHeight: 17 },
@@ -2658,10 +2671,12 @@ const s = StyleSheet.create({
   analysisPage: { flex: 1, minWidth: 0, backgroundColor: colors.paper },
   analysisScrollContent: { paddingBottom: 112 },
   uploadDock: { position: "absolute", left: 16, right: 16, bottom: 10, maxWidth: 520, alignSelf: "center", padding: 7, borderRadius: 20, backgroundColor: "#FFFFFFF2", ...shadow },
-  patientHome: { flex: 1, width: "100%", maxWidth: 920, alignSelf: "center", overflow: "hidden", backgroundColor: "#17214B" },
+  patientHome: { flex: 1, width: "100%", maxWidth: 920, alignSelf: "center", overflow: "hidden", backgroundColor: "transparent" },
   patientHomeCompact: { maxWidth: "100%" },
   patientWelcome: { minHeight: 238, paddingHorizontal: 28, paddingTop: 20, paddingBottom: 42, justifyContent: "center", gap: 15 },
   patientWelcomeCompact: { minHeight: 222, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 34, gap: 11 },
+  welcomeIdentity: { flexDirection: "row", alignItems: "center", gap: 11 },
+  profileGlyph: { width: 34, height: 38, alignItems: "center", justifyContent: "center" },
   homeDiscovery: { flex: 1, minHeight: 0, marginTop: -24, padding: 20, paddingBottom: 24, gap: 14, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: "#F3F4FA", overflow: "hidden" },
   homeDiscoveryCompact: { padding: 12, paddingTop: 14, paddingBottom: 12, gap: 11, borderTopLeftRadius: 28, borderTopRightRadius: 28 },
   homeUpdates: { gap: 9 },
