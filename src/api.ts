@@ -16,7 +16,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (init.body && !(init.body instanceof FormData))
     headers.set("Content-Type", "application/json");
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  } catch {
+    throw new Error("Нет связи с сервером. Проверьте интернет и повторите попытку.");
+  }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || "Не удалось выполнить запрос");
   return body as T;

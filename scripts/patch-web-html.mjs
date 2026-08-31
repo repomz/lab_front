@@ -16,7 +16,8 @@ html = html.replace(
 const appleMeta = [
   '    <meta name="apple-mobile-web-app-capable" content="yes" />',
   '    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />',
-  '    <style id="lab-system-canvas">html, body { width: 100%; height: 100%; min-height: 100%; margin: 0; overflow: hidden; background-color: #17214B; } #root { position: fixed; inset: 0; width: 100%; height: 100dvh; min-height: 100dvh; overflow: hidden; background-color: #17214B; }</style>',
+  '    <style id="lab-system-canvas">html, body { position: fixed; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; overscroll-behavior: none; background-color: #17214B; } #root { position: absolute; inset: 0; width: 100%; height: auto; min-height: 0; overflow: hidden; background-color: #17214B; }</style>',
+  '    <script>if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(function(items){items.forEach(function(item){item.unregister()})})}if("caches" in window){caches.keys().then(function(keys){keys.forEach(function(key){caches.delete(key)})})}</script>',
 ].join("\n");
 
 if (!html.includes('name="apple-mobile-web-app-capable"')) {

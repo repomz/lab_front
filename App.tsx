@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.7.0";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.7.1";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
@@ -121,9 +121,12 @@ function AppContent() {
   const compact = width < 640;
   async function refresh(u = user) {
     if (!u) return;
-    const [a, c] = await Promise.all([api.analyses(), api.consultations()]);
-    setAnalyses(a);
-    setConsultations(c);
+    const [analysesResult, consultationsResult] = await Promise.allSettled([api.analyses(), api.consultations()]);
+    if (analysesResult.status === "fulfilled") setAnalyses(analysesResult.value);
+    if (consultationsResult.status === "fulfilled") setConsultations(consultationsResult.value);
+    if (analysesResult.status === "rejected" || consultationsResult.status === "rejected") {
+      throw new Error("Не все данные удалось обновить. Проверьте соединение и повторите попытку.");
+    }
   }
   function requestDelete(item: Analysis) {
     const remove = async () => {
@@ -171,7 +174,11 @@ function AppContent() {
           await setToken(t);
           setUser(u);
           setTab("home");
-          await refresh(u);
+          try {
+            await refresh(u);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Не удалось обновить данные");
+          }
         }}
       />
     );
@@ -215,7 +222,7 @@ function AppContent() {
     ) : tab === "guides" ? (
       <Guides />
     ) : user.role === "patient" ? (
-      <SupportChat onBack={() => setTab("home")} />
+      <SupportChat compact={compact} onBack={() => setTab("home")} />
     ) : (
       <Profile
         user={user}
@@ -236,7 +243,7 @@ function AppContent() {
         {desktop && <Sidebar user={user} tab={tab} onTab={setTab} />}
         <View style={s.main}>
           {error ? <Banner text={error} onClose={() => setError("")} /> : null}
-          <View style={[s.content, !desktop && s.contentWithBottom]}>{content}</View>
+          <View style={s.content}>{content}</View>
           {!desktop && <Bottom role={user.role} tab={tab} onTab={setTab} />}
         </View>
       </View>
@@ -291,6 +298,9 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const registrationReady = mode !== "register" || legacyPIN || (role === "doctor"
+    ? !!form.specialization.trim()
+    : Number(form.age) > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0);
   async function submit() {
     if (!/^\d{4}$/.test(form.password)) {
       setError("Введите PIN из четырёх цифр.");
@@ -336,8 +346,8 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
         {!compact && <View style={s.authOrbTwo} />}
         <View style={[s.authLabSheet, s.authLabSheetOne]}><Ionicons name="document-text-outline" size={25} color="#B9C6FF"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:46}]}/><View style={[s.authLabLine,{width:30}]}/></View></View>
         <View style={[s.authLabSheet, s.authLabSheetTwo]}><Ionicons name="flask-outline" size={25} color="#7DE0D5"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:38}]}/></View></View>
-        <View style={s.authMedicalCross}><Ionicons name="medical" size={21} color="#FFFFFFB8"/></View>
-        <Text style={s.authVersion}>LAB HEALTH · v{APP_VERSION}</Text>
+        {!compact ? <View style={s.authMedicalCross}><Ionicons name="medical" size={21} color="#FFFFFFB8"/></View> : null}
+        {!compact ? <Text style={s.authVersion}>LAB HEALTH · v{APP_VERSION}</Text> : null}
         <Text style={[s.authHero, compact && s.authHeroCompact]}>
           Твои анализы собраны. Здоровье — под контролем.
         </Text>
@@ -466,7 +476,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
                   : "Зарегистрироваться"
             }
             onPress={submit}
-            disabled={busy || form.password.length !== 4 || !form.email.trim() || (legacyPIN && !currentPassword)}
+            disabled={busy || form.password.length !== 4 || !form.email.trim() || (legacyPIN && !currentPassword) || !registrationReady}
           />
           {mode === "login" && !remembered && !legacyPIN ? <Pressable accessibilityRole="button" style={[s.textButton,compact&&s.authTextButtonCompact]} onPress={() => { setLegacyPIN(true); setForm({...form,password:""}); setError(""); }}><Text style={[s.switchText, compact && s.switchTextOnDark]}>Настроить PIN для существующего аккаунта</Text></Pressable> : null}
           {legacyPIN ? <Pressable accessibilityRole="button" style={[s.textButton,compact&&s.authTextButtonCompact]} onPress={() => { setLegacyPIN(false); setCurrentPassword(""); setForm({...form,password:""}); setError(""); }}><Text style={[s.switchText, compact && s.switchTextOnDark]}>Назад ко входу</Text></Pressable> : null}
@@ -488,6 +498,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
           </Pressable>}
         </View>
       </ScrollView>
+      {compact ? <Text style={s.authVersionCompact}>LAB HEALTH · v{APP_VERSION}</Text> : null}
     </SafeAreaView>
     </LinearGradient>
   );
@@ -909,7 +920,7 @@ function DoctorSchedule({ user, compact }: { user: User; compact: boolean }) {
   function toggle(d:number,h:number,m:number){if(!edit)return;const value=addDays(week,d);value.setHours(h,m,0,0);if(value<=new Date())return;const key=slotKey(value);if(slots.some(x=>slotKey(x.start_at)===key&&x.status==="booked"))return;setSelected(current=>{const next=new Set(current);next.has(key)?next.delete(key):next.add(key);return next})}
   function beginEdit(){if(addDays(week,7).getTime()-Date.now()<48*60*60*1000)setWeek(addDays(week,7));setEdit(true)}
   async function save(){setBusy(true);try{await api.saveSchedule(from,to,[...selected]);setEdit(false);await load()}catch(e){Alert.alert("Не удалось сохранить",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
-  return <View style={s.schedulePage}><LinearGradient colors={["#17214B","#3C3A86","#147D83"]} style={[s.doctorWelcome,compact&&s.doctorWelcomeCompact]}><View><Text style={s.welcomeOver}>РАСПИСАНИЕ</Text><Text style={s.doctorWelcomeTitle}>Здравствуйте, {firstName(user.full_name)}</Text></View><Pressable style={s.scheduleEdit} onPress={()=>edit?void save():beginEdit()}><Ionicons name={edit?"checkmark":"create-outline"} size={19} color={colors.white}/><Text style={s.scheduleEditText}>{busy?"Сохраняем…":edit?"Готово":"Изменить"}</Text></Pressable></LinearGradient>
+  return <View style={[s.schedulePage, compact && s.schedulePageCompact]}><LinearGradient colors={["#17214B","#3C3A86","#147D83"]} style={[s.doctorWelcome,compact&&s.doctorWelcomeCompact]}><View><Text style={s.welcomeOver}>РАСПИСАНИЕ</Text><Text style={s.doctorWelcomeTitle}>Здравствуйте, {firstName(user.full_name)}</Text></View><Pressable style={s.scheduleEdit} onPress={()=>edit?void save():beginEdit()}><Ionicons name={edit?"checkmark":"create-outline"} size={19} color={colors.white}/><Text style={s.scheduleEditText}>{busy?"Сохраняем…":edit?"Готово":"Изменить"}</Text></Pressable></LinearGradient>
     <View style={s.weekToolbar}><Pressable style={s.iconButton} onPress={()=>setWeek(addDays(week,-7))}><Ionicons name="chevron-back" size={22}/></Pressable><Pressable onPress={()=>setWeek(weekStart())}><Text style={s.weekTitle}>{week.toLocaleDateString("ru-RU",{day:"numeric",month:"short"})} — {addDays(week,6).toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}</Text></Pressable><Pressable style={s.iconButton} onPress={()=>setWeek(addDays(week,7))}><Ionicons name="chevron-forward" size={22}/></Pressable></View>
     {edit&&<View style={s.editHint}><Ionicons name="information-circle-outline" size={20} color={colors.violet}/><Text style={s.aiDisclaimer}>Выберите будущие ячейки. Прошедшее время недоступно.</Text></View>}
     <ScrollView horizontal style={s.calendarHorizontal} contentContainerStyle={{minWidth:760}}><View><View style={s.calendarHeader}><View style={s.timeColumn}/>{weekDays.map((label,i)=><View key={label} style={s.dayHeader}><Text style={s.dayName}>{label}</Text><Text style={s.dayNumber}>{addDays(week,i).getDate()}</Text></View>)}</View><ScrollView style={s.calendarVertical} nestedScrollEnabled>{rows.map(({h,m})=><View key={`${h}-${m}`} style={s.calendarRow}><View style={s.timeColumn}><Text style={s.timeText}>{String(h).padStart(2,"0")}:{String(m).padStart(2,"0")}</Text></View>{weekDays.map((_,d)=>{const value=addDays(week,d);value.setHours(h,m,0,0);const past=value<=new Date();const key=slotKey(value);const booked=slots.find(x=>slotKey(x.start_at)===key&&x.status==="booked");const available=selected.has(key)&&!past;return <Pressable key={d} disabled={past} onPress={()=>toggle(d,h,m)} style={[s.calendarCell,past&&s.pastCell,available&&s.availableCell,booked&&s.bookedCell]}><Text numberOfLines={2} style={[s.cellText,(available||booked)&&{color:colors.white}]}>{booked?(booked.patient_name||"Пациент"):available?"Доступно":""}</Text></Pressable>})}</View>)}</ScrollView></View></ScrollView>
@@ -1567,7 +1578,7 @@ function Detail({
   );
 }
 
-function SupportChat({ onBack }: { onBack: () => void }) {
+function SupportChat({ onBack, compact = false }: { onBack: () => void; compact?: boolean }) {
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [textValue, setTextValue] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1595,7 +1606,7 @@ function SupportChat({ onBack }: { onBack: () => void }) {
     } finally { setBusy(false); }
   }
   const visibleMessages = searchValue.trim() ? messages.filter((message) => message.text.toLocaleLowerCase("ru-RU").includes(searchValue.trim().toLocaleLowerCase("ru-RU"))) : messages;
-  return <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={s.supportPage}>
+  return <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={[s.supportPage, compact && s.supportPageCompact]}>
     <View style={s.supportHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" onPress={onBack} style={s.supportHeaderButton}><Ionicons name="arrow-back" size={27} color={colors.ink}/></Pressable><Text style={s.supportTitle}>Чат с Lab HEALTH</Text><Pressable accessibilityRole="button" accessibilityLabel="Поиск по сообщениям" onPress={()=>setSearchOpen((value)=>!value)} style={s.supportHeaderButton}><Ionicons name={searchOpen?"close":"search"} size={26} color={colors.ink}/></Pressable></View>
     {searchOpen && <View style={s.supportSearch}><Ionicons name="search" size={19} color={colors.muted}/><TextInput autoFocus style={s.supportSearchInput} placeholder="Поиск в чате" value={searchValue} onChangeText={setSearchValue}/></View>}
     <ScrollView ref={listRef} style={{flex:1}} contentContainerStyle={s.supportMessages} onContentSizeChange={() => listRef.current?.scrollToEnd({animated:false})}>
@@ -1655,13 +1666,11 @@ function Sidebar({
 }
 function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) => void }) {
   const insets = useSafeAreaInsets();
+  const bottomOffset = Platform.OS === "web"
+    ? ({ bottom: "max(env(safe-area-inset-bottom), 8px)" } as any)
+    : { bottom: Math.max(insets.bottom, 8) };
   return (
-    <LinearGradient
-      colors={["#17276E", "#25358D"]}
-      start={{x:0,y:0}}
-      end={{x:1,y:0}}
-      style={[s.bottom, Platform.OS === "web" && ({position:"fixed"} as any), { bottom: Math.max(insets.bottom, 12) }]}
-    >
+    <View style={[s.bottom, bottomOffset]}>
       {tabsFor(role).map((t) => (
         <Pressable
           key={t}
@@ -1677,14 +1686,14 @@ function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) =>
           <View style={[s.bottomIcon, tab === t && s.bottomIconActive]}><Ionicons
               name={role === "patient" && t === "profile" ? "chatbubble-ellipses-outline" : icon[t]}
               size={23}
-              color={tab === t ? colors.white : "#92A0C7"}
+              color={tab === t ? colors.brand : colors.muted}
             /></View>
           <Text style={[s.bottomText, tab === t && s.bottomTextActive]}>
             {role === "patient" && t === "profile" ? "Чат" : labels[t]}
           </Text>
         </Pressable>
       ))}
-    </LinearGradient>
+    </View>
   );
 }
 function AvatarView({user,size=44}:{user:User;size?:number}){
@@ -1947,7 +1956,6 @@ const s = StyleSheet.create({
   shell: { flex: 1, width: "100%", flexDirection: "row", overflow: "hidden" },
   main: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden", position: "relative" },
   content: { flex: 1, minWidth: 0, maxWidth: "100%" },
-  contentWithBottom: { paddingBottom: 106 },
   top: {
     height: 58,
     paddingHorizontal: 28,
@@ -2036,33 +2044,36 @@ const s = StyleSheet.create({
   sidebarName: { fontWeight: "700", color: colors.ink },
   bottom: {
     position: "absolute",
-    left: 16,
-    right: 16,
+    left: 12,
+    right: 12,
     zIndex: 100,
-    height: 86,
+    height: 76,
     flexDirection: "row",
-    borderRadius: 28,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    borderRadius: 25,
+    paddingHorizontal: 7,
+    paddingVertical: 6,
     gap: 2,
-    shadowColor: "#101A51",
-    shadowOpacity: .28,
-    shadowRadius: 18,
-    shadowOffset: {width:0,height:8},
-    elevation: 12,
+    backgroundColor: "#FFFFFFF5",
+    borderWidth: 1,
+    borderColor: "#E4E7F0",
+    shadowColor: "#17214B",
+    shadowOpacity: .14,
+    shadowRadius: 16,
+    shadowOffset: {width:0,height:7},
+    elevation: 10,
   },
   bottomItem: {
     flex: 1,
-    minHeight: 68,
+    minHeight: 62,
     alignItems: "center",
     justifyContent: "center",
     gap: 2,
   },
   bottomItemActive: { backgroundColor: "transparent" },
   bottomIcon: { minWidth: 42, height: 31, paddingHorizontal: 10, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  bottomIconActive: { backgroundColor: "transparent" },
-  bottomText: { fontSize: 10, lineHeight: 14, fontWeight: "700", color: "#92A0C7" },
-  bottomTextActive: { color: colors.white },
+  bottomIconActive: { backgroundColor: colors.mint },
+  bottomText: { fontSize: 10, lineHeight: 14, fontWeight: "700", color: colors.muted },
+  bottomTextActive: { color: colors.brand },
   scroll: {
     padding: 28,
     paddingBottom: 110,
@@ -2236,14 +2247,12 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   authAsideCompact: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    paddingHorizontal: 22,
-    paddingTop: 24,
-    paddingBottom: 24,
+    flex: 0,
+    width: "100%",
+    height: 274,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
     justifyContent: "flex-start",
   },
   authOrbOne: {
@@ -2280,6 +2289,17 @@ const s = StyleSheet.create({
     letterSpacing: 1.2,
     color: "#A9D9C7",
   },
+  authVersionCompact: {
+    flex: 0,
+    height: 27,
+    paddingTop: 3,
+    textAlign: "center",
+    fontSize: 10,
+    lineHeight: 15,
+    fontWeight: "800",
+    letterSpacing: 1.1,
+    color: "#A9D9C7",
+  },
   authHero: {
     fontSize: 42,
     lineHeight: 48,
@@ -2290,10 +2310,14 @@ const s = StyleSheet.create({
     marginTop: 35,
   },
   authHeroCompact: {
-    fontSize: 28,
-    lineHeight: 33,
+    position: "absolute",
+    left: 18,
+    right: 18,
+    bottom: 18,
+    fontSize: 27,
+    lineHeight: 32,
     letterSpacing: -0.8,
-    marginTop: 214,
+    marginTop: 0,
     maxWidth: 345,
   },
   authSub: {
@@ -2311,15 +2335,15 @@ const s = StyleSheet.create({
   },
   authPointText: { color: "#E0EEE8", fontSize: 13 },
   authForm: { flexGrow: 1, justifyContent: "center", padding: 32 },
-  authScrollCompact: { flex: 1, zIndex: 2, backgroundColor: "transparent" },
+  authScrollCompact: { flex: 1, width: "100%", backgroundColor: "transparent" },
   authFormCompact: {
     flexGrow: 1,
     justifyContent: "flex-start",
     paddingHorizontal: 16,
-    paddingTop: 222,
-    paddingBottom: 72,
+    paddingTop: 0,
+    paddingBottom: 22,
   },
-  authFormLoginCompact: { paddingTop: 350 },
+  authFormLoginCompact: { paddingTop: 0 },
   authCard: {
     width: "100%",
     maxWidth: 460,
@@ -2332,8 +2356,9 @@ const s = StyleSheet.create({
   authCardCompact: {
     maxWidth: 520,
     borderRadius: 0,
-    paddingHorizontal: 6,
-    paddingVertical: 20,
+    paddingHorizontal: 4,
+    paddingTop: 10,
+    paddingBottom: 8,
     backgroundColor: "transparent",
     shadowOpacity: 0,
     elevation: 0,
@@ -2713,7 +2738,7 @@ const s = StyleSheet.create({
   registrationVitals: { width: "100%", flexDirection: "column", gap: 2 },
   analysisPage: { flex: 1, minWidth: 0, backgroundColor: colors.paper },
   analysisScrollContent: { paddingBottom: 112 },
-  uploadDock: { position: "absolute", left: 16, right: 16, bottom: 10, maxWidth: 520, alignSelf: "center", padding: 7, borderRadius: 20, backgroundColor: "#FFFFFFF2", ...shadow },
+  uploadDock: { position: "absolute", left: 16, right: 16, bottom: 92, maxWidth: 520, alignSelf: "center", padding: 7, borderRadius: 20, backgroundColor: "#FFFFFFF2", ...shadow },
   patientHome: { flex: 1, width: "100%", maxWidth: 920, alignSelf: "center", overflow: "hidden", backgroundColor: "transparent" },
   patientHomeCompact: { maxWidth: "100%" },
   patientWelcome: { minHeight: 238, paddingHorizontal: 28, paddingTop: 20, paddingBottom: 42, justifyContent: "center", gap: 15 },
@@ -2721,7 +2746,7 @@ const s = StyleSheet.create({
   welcomeIdentity: { flexDirection: "row", alignItems: "center", gap: 11 },
   profileGlyph: { width: 34, height: 38, alignItems: "center", justifyContent: "center" },
   homeDiscovery: { flex: 1, minHeight: 0, marginTop: -24, padding: 20, paddingBottom: 24, gap: 14, borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: "#F3F4FA", overflow: "hidden" },
-  homeDiscoveryCompact: { padding: 12, paddingTop: 14, paddingBottom: 12, gap: 11, borderTopLeftRadius: 28, borderTopRightRadius: 28 },
+  homeDiscoveryCompact: { padding: 12, paddingTop: 14, paddingBottom: 96, gap: 11, borderTopLeftRadius: 28, borderTopRightRadius: 28 },
   homeUpdates: { gap: 9 },
   homeUpdateMain: { minHeight: 70, padding: 11, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 18, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.violetSoft },
   homeUpdateOnGradient: { backgroundColor: "#FFFFFFF2", borderColor: "#FFFFFF4A" },
@@ -2826,7 +2851,7 @@ const s = StyleSheet.create({
   consultType: { flexDirection: "row", alignItems: "center", gap: 6 },
   consultCardTitle: { color: colors.ink, fontSize: 17, fontWeight: "800", marginTop: 12 },
   doctorSearch: { minHeight: 54, borderRadius: 17, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
-  doctorSearchInput: { flex: 1, minWidth: 0, fontSize: 15, color: colors.ink, outlineStyle: "none" } as any,
+  doctorSearchInput: { flex: 1, minWidth: 0, fontSize: 16, color: colors.ink, outlineStyle: "none" } as any,
   doctorGrid: { gap: 11 },
   doctorDirectoryCard: { minHeight: 86, padding: 15, borderRadius: 20, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, flexDirection: "row", alignItems: "center", gap: 13, ...shadow },
   doctorAvatar: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
@@ -2838,7 +2863,7 @@ const s = StyleSheet.create({
   profileVitals: { width: "100%", gap: 13, marginBottom: 18 },
   profileHeader: { minHeight: 64, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.paper },
   profileBack: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  profileScreen: { width: "100%", maxWidth: 760, alignSelf: "center", paddingHorizontal: 22, paddingTop: 10, paddingBottom: 48 },
+  profileScreen: { width: "100%", maxWidth: 760, alignSelf: "center", paddingHorizontal: 22, paddingTop: 10, paddingBottom: 124 },
   profileIdentity: { minHeight: 94, flexDirection: "row", alignItems: "center", gap: 15, borderBottomWidth: 1, borderBottomColor: colors.line },
   profileIdentityIcon: { width: 58, height: 58, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: colors.violetSoft },
   profileIdentityName: { color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: "900" },
@@ -2847,7 +2872,7 @@ const s = StyleSheet.create({
   profileLine: { minHeight: 66, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, borderBottomColor: colors.line },
   profileLineLabel: { width: "38%", color: colors.muted, fontSize: 13, lineHeight: 18, fontWeight: "700" },
   profileLineValue: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
-  profileLineInput: { flex: 1, minWidth: 0, minHeight: 52, paddingHorizontal: 0, color: colors.ink, fontSize: 15, fontWeight: "700", outlineStyle: "none", backgroundColor: "transparent" } as any,
+  profileLineInput: { flex: 1, minWidth: 0, minHeight: 52, paddingHorizontal: 0, color: colors.ink, fontSize: 16, fontWeight: "700", outlineStyle: "none", backgroundColor: "transparent" } as any,
   profileLineSuffix: { color: colors.muted, fontSize: 13, marginLeft: 6 },
   profileInfoLine: { minHeight: 66, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: colors.line },
   profileInfoLabel: { color: colors.muted, fontSize: 13, fontWeight: "700" },
@@ -2863,6 +2888,7 @@ const s = StyleSheet.create({
   guidelineGrid: { gap: 11 },
   guidelineCard: { minHeight: 84, borderRadius: 20, padding: 15, flexDirection: "row", alignItems: "center", gap: 13, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, ...shadow },
   schedulePage: { flex: 1, padding: 18, gap: 12, maxWidth: 1280, width: "100%", alignSelf: "center" },
+  schedulePageCompact: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 96 },
   doctorWelcome: { minHeight: 84, borderRadius: 22, paddingHorizontal: 22, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   doctorWelcomeCompact: { minHeight: 74, borderRadius: 18, paddingHorizontal: 16 },
   doctorWelcomeTitle: { color: colors.white, fontSize: 21, fontWeight: "800", marginTop: 4 },
@@ -2901,6 +2927,7 @@ const s = StyleSheet.create({
   chatInput: { flex: 1, minWidth: 0, maxHeight: 120, minHeight: 48, borderRadius: 17, backgroundColor: colors.paper, paddingHorizontal: 15, paddingVertical: 12, color: colors.ink, fontSize: 16, lineHeight: 21 },
   sendButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.violet, alignItems: "center", justifyContent: "center" },
   supportPage: { flex: 1, minHeight: 0, backgroundColor: colors.white },
+  supportPageCompact: { paddingBottom: 92 },
   supportHeader: { minHeight: 74, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.white },
   supportHeaderButton: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   supportTitle: { flex: 1, color: colors.ink, fontSize: 20, fontWeight: "900" },
