@@ -52,6 +52,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+  setPIN: (email: string, currentPassword: string, pin: string) =>
+    request<{ token: string; user: User }>("/auth/set-pin", {
+      method: "POST",
+      body: JSON.stringify({ email, currentPassword, pin }),
+    }),
   me: () => request<User>("/me"),
   updatePatientProfile: (value: { age: number; heightCM: number; weightKG: number; activity: ActivitySurvey; nutrition: NutritionSurvey }) =>
     request<User>("/me/patient-profile", { method: "PATCH", body: JSON.stringify(value) }),

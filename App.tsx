@@ -31,7 +31,9 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.6.0";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.7.0";
+const LAST_LOGIN_KEY = "lab.last-login";
+const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
 type AgeBand = "under20" | "20s" | "30s" | "40s" | "50s" | "60s" | "70s" | "80s";
 const activityImages: Record<AgeBand, number[]> = {
@@ -234,7 +236,7 @@ function AppContent() {
         {desktop && <Sidebar user={user} tab={tab} onTab={setTab} />}
         <View style={s.main}>
           {error ? <Banner text={error} onClose={() => setError("")} /> : null}
-          <View style={s.content}>{content}</View>
+          <View style={[s.content, !desktop && s.contentWithBottom]}>{content}</View>
           {!desktop && <Bottom role={user.role} tab={tab} onTab={setTab} />}
         </View>
       </View>
@@ -272,9 +274,13 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   const { width } = useWindowDimensions();
   const compact = width < 720;
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [legacyPIN, setLegacyPIN] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
   const [role, setRole] = useState<Role>("patient");
+  const [remembered, setRemembered] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "");
+  const [rememberedName, setRememberedName] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_NAME_KEY) || "" : "");
   const [form, setForm] = useState({
-    email: "",
+    email: Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "",
     password: "",
     fullName: "",
     specialization: "",
@@ -286,11 +292,17 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit() {
+    if (!/^\d{4}$/.test(form.password)) {
+      setError("Введите PIN из четырёх цифр.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const r =
-        mode === "login"
+        legacyPIN
+          ? await api.setPIN(form.email, currentPassword, form.password)
+          : mode === "login"
           ? await api.login(form.email, form.password)
           : await api.register({
               ...form,
@@ -299,6 +311,10 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
               heightCM: role === "patient" ? Number(form.heightCM) : undefined,
               weightKG: role === "patient" ? Number(form.weightKG) : undefined,
             });
+      if (Platform.OS === "web" && typeof localStorage !== "undefined") {
+        localStorage.setItem(LAST_LOGIN_KEY, form.email);
+        localStorage.setItem(LAST_NAME_KEY, firstName(r.user.full_name));
+      }
       onDone(r.user, r.token);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
@@ -317,14 +333,11 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
         style={[s.authAside, compact && s.authAsideCompact]}
       >
         <View style={s.authOrbOne} />
-        <View style={s.authOrbTwo} />
+        {!compact && <View style={s.authOrbTwo} />}
         <View style={[s.authLabSheet, s.authLabSheetOne]}><Ionicons name="document-text-outline" size={25} color="#B9C6FF"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:46}]}/><View style={[s.authLabLine,{width:30}]}/></View></View>
         <View style={[s.authLabSheet, s.authLabSheetTwo]}><Ionicons name="flask-outline" size={25} color="#7DE0D5"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:38}]}/></View></View>
         <View style={s.authMedicalCross}><Ionicons name="medical" size={21} color="#FFFFFFB8"/></View>
         <Text style={s.authVersion}>LAB HEALTH · v{APP_VERSION}</Text>
-        <View style={[s.logo, compact && { marginTop: 32 }]}>
-          <Ionicons name="pulse" size={26} color={colors.white} />
-        </View>
         <Text style={[s.authHero, compact && s.authHeroCompact]}>
           Твои анализы собраны. Здоровье — под контролем.
         </Text>
@@ -354,14 +367,14 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
       >
         <View style={[s.authCard, compact && s.authCardCompact]}>
           <Text style={[s.cardTitle, compact && s.authTextLight]}>
-            {mode === "login" ? "С возвращением" : "Создать профиль"}
+            {legacyPIN ? "Настроить PIN" : mode === "login" ? rememberedName ? `Здравствуйте, ${rememberedName}` : "Вход по PIN" : "Создать профиль"}
           </Text>
           <Text style={[s.cardHint, compact && s.authHintLight]}>
-            {mode === "login"
-              ? "Войдите, чтобы открыть свою медицинскую историю."
-              : "Выберите роль и заполните основные данные."}
+            {legacyPIN ? "Введите прежний пароль один раз и придумайте новый PIN." : mode === "login"
+              ? remembered ? "Введите PIN, чтобы открыть приложение." : "Укажите логин один раз и введите PIN."
+              : "Выберите роль, заполните данные и придумайте PIN из четырёх цифр."}
           </Text>
-          {mode === "register" && (
+          {mode === "register" && !legacyPIN && (
             <>
               <View style={[s.segment, compact && s.segmentOnDark]}>
                 <Segment
@@ -436,37 +449,34 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
               )}
             </>
           )}
-          <Field
-            label="Логин"
-            dark={compact}
-            autoCapitalize="none"
-            value={form.email}
-            onChangeText={(v: string) => setForm({ ...form, email: v })}
-          />
-          <Field
-            label="Пароль"
-            dark={compact}
-            secureTextEntry
-            value={form.password}
-            onChangeText={(v: string) => setForm({ ...form, password: v })}
-          />
+          {(!remembered || mode === "register" || legacyPIN) && (
+            <Field label="Логин" dark={compact} autoCapitalize="none" value={form.email} onChangeText={(v: string) => setForm({ ...form, email: v })}/>
+          )}
+          {legacyPIN ? <Field label="Текущий пароль" dark={compact} secureTextEntry value={currentPassword} onChangeText={setCurrentPassword}/> : null}
+          <PinPad value={form.password} dark={compact} onChange={(password) => setForm({ ...form, password })}/>
           {error ? <Text style={s.error}>{error}</Text> : null}
           <Button
             label={
               busy
                 ? "Подождите…"
+                : legacyPIN
+                  ? "Сохранить PIN и войти"
                 : mode === "login"
                   ? "Войти"
                   : "Зарегистрироваться"
             }
             onPress={submit}
-            disabled={busy}
+            disabled={busy || form.password.length !== 4 || !form.email.trim() || (legacyPIN && !currentPassword)}
           />
-          <Pressable
+          {mode === "login" && !remembered && !legacyPIN ? <Pressable accessibilityRole="button" style={[s.textButton,compact&&s.authTextButtonCompact]} onPress={() => { setLegacyPIN(true); setForm({...form,password:""}); setError(""); }}><Text style={[s.switchText, compact && s.switchTextOnDark]}>Настроить PIN для существующего аккаунта</Text></Pressable> : null}
+          {legacyPIN ? <Pressable accessibilityRole="button" style={[s.textButton,compact&&s.authTextButtonCompact]} onPress={() => { setLegacyPIN(false); setCurrentPassword(""); setForm({...form,password:""}); setError(""); }}><Text style={[s.switchText, compact && s.switchTextOnDark]}>Назад ко входу</Text></Pressable> : null}
+          {mode === "login" && remembered ? <Pressable accessibilityRole="button" style={[s.textButton,compact&&s.authTextButtonCompact]} onPress={() => { setRemembered(""); setRememberedName(""); setForm({...form,email:"",password:""}); if (Platform.OS === "web" && typeof localStorage !== "undefined") { localStorage.removeItem(LAST_LOGIN_KEY); localStorage.removeItem(LAST_NAME_KEY); } }}><Text style={[s.switchText, compact && s.switchTextOnDark]}>Сменить пользователя</Text></Pressable> : null}
+          {!legacyPIN && <Pressable
             accessibilityRole="button"
-            style={s.textButton}
+            style={[s.textButton, compact && s.authTextButtonCompact]}
             onPress={() => {
               setMode(mode === "login" ? "register" : "login");
+              setForm({...form,password:"",email: mode === "register" ? remembered : form.email});
               setError("");
             }}
           >
@@ -475,12 +485,21 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
                 ? "Нет аккаунта? Создать"
                 : "Уже есть аккаунт? Войти"}
             </Text>
-          </Pressable>
+          </Pressable>}
         </View>
       </ScrollView>
     </SafeAreaView>
     </LinearGradient>
   );
+}
+
+function PinPad({ value, onChange, dark }: { value: string; onChange: (value: string) => void; dark?: boolean }) {
+  const keys: Array<number | "back" | null> = [1,2,3,4,5,6,7,8,9,null,0,"back"];
+  return <View style={s.pinBlock}>
+    <Text style={[s.label, dark && s.labelOnDark]}>PIN-код</Text>
+    <View accessibilityLabel={`Введено цифр: ${value.length}`} style={s.pinDots}>{[0,1,2,3].map((index)=><View key={index} style={[s.pinDot, dark && s.pinDotOnDark, index < value.length && s.pinDotFilled]}/>)}</View>
+    <View style={s.pinGrid}>{keys.map((key,index)=>key===null?<View key={index} style={s.pinKey}/>:<Pressable key={String(key)} accessibilityRole="button" accessibilityLabel={key==="back"?"Удалить цифру":String(key)} style={({pressed})=>[s.pinKey,dark&&s.pinKeyOnDark,pressed&&{opacity:.55}]} onPress={()=>key==="back"?onChange(value.slice(0,-1)):value.length<4&&onChange(`${value}${key}`)}>{key==="back"?<Ionicons name="backspace-outline" size={25} color={dark?colors.white:colors.ink}/>:<Text style={[s.pinKeyText,dark&&{color:colors.white}]}>{key}</Text>}</Pressable>)}</View>
+  </View>;
 }
 
 function Home({
@@ -552,8 +571,8 @@ function Home({
 function PatientProfileModal({ visible, user, onUpdated, onClose }: { visible: boolean; user: User; onUpdated: (user: User) => void; onClose: () => void }) {
   return <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
     <SafeAreaView style={s.fullScreenModal}>
-      <View style={s.fullScreenHeader}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25}/></Pressable>
+      <View style={s.profileHeader}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.profileBack} onPress={onClose}><Ionicons name="arrow-back" size={27}/></Pressable>
         <Text style={s.fullScreenTitle}>Профиль</Text><View style={s.headerSpacer}/>
       </View>
       <Profile user={user} onUpdated={onUpdated} />
@@ -1077,21 +1096,15 @@ function Profile({ user, onUpdated }: { user: User; onUpdated: (u: User) => void
     finally { setBusy(false); }
   }
   return (
-    <ScrollView contentContainerStyle={s.scroll}>
-      <LinearGradient colors={["#192659","#4C3F91","#13858A"]} style={s.profileHero}>
-        {user.role === "doctor" && <AvatarView user={user} size={92}/>}<Text style={s.profileHeroName}>{user.full_name}</Text><Text style={s.profileHeroMeta}>{user.role==="doctor"?user.specialization:"Пациент"}</Text>
-      </LinearGradient>
-      <View style={s.profileCard}>
-        <View style={s.profileVitals}><Text style={s.surveyTitle}>Контактные данные</Text><Field label="Имя" value={fullName} onChangeText={setFullName}/><Field label="Почта" value={user.email} editable={false}/><Field label="Мобильный телефон" keyboardType="phone-pad" placeholder="+7 900 000-00-00" value={phone} onChangeText={setPhone}/><Field label="Адрес проживания" placeholder="Город, улица, дом, квартира" value={address} onChangeText={setAddress}/></View>
-        {user.role === "doctor" && <><Text style={s.surveyTitle}>Фото профиля</Text><View style={s.profilePhotoActions}><MiniAction label="Камера" icon="camera-outline" onPress={()=>void chooseAvatar("camera")}/><MiniAction label="Галерея" icon="images-outline" onPress={()=>void chooseAvatar("gallery")}/></View></>}
-        {user.role === "patient" && <View style={s.profileVitals}><Text style={s.surveyTitle}>Показатели здоровья</Text><View style={s.registrationVitals}><Field label="Возраст" keyboardType="number-pad" value={age} onChangeText={setAge} /><Field label="Рост, см" keyboardType="decimal-pad" value={height} onChangeText={setHeight} /><Field label="Вес, кг" keyboardType="decimal-pad" value={weight} onChangeText={setWeight} /></View>{profile ? <View style={s.bmiCard}><Text style={s.bmiValue}>ИМТ {profile.bmi}</Text><Text style={s.analysisMeta}>Используется только для персонализации рекомендаций, не как диагноз.</Text></View> : null}</View>}
-        <View style={s.roleBadge}>
-          <Text style={s.roleText}>
-            {user.role === "doctor"
-              ? `Врач · ${user.specialization}`
-              : "Пациент"}
-          </Text>
-        </View>
+    <ScrollView contentContainerStyle={s.profileScreen}>
+      <View style={s.profileIdentity}><View style={s.profileIdentityIcon}>{user.role === "doctor" ? <AvatarView user={user} size={58}/> : <Ionicons name="person-outline" size={31} color={colors.brand}/>}</View><View style={{flex:1}}><Text style={s.profileIdentityName}>{user.full_name}</Text><Text style={s.profileIdentityRole}>{user.role === "doctor" ? user.specialization : "Пациент"}</Text></View></View>
+      <Text style={s.profileSectionTitle}>Личные данные</Text>
+      <ProfileLine label="Имя" value={fullName} onChangeText={setFullName}/>
+      <ProfileLine label="Почта" value={user.email} editable={false}/>
+      <ProfileLine label="Мобильный телефон" value={phone} placeholder="+7 900 000-00-00" keyboardType="phone-pad" onChangeText={setPhone}/>
+      <ProfileLine label="Адрес проживания" value={address} placeholder="Город, улица, дом, квартира" onChangeText={setAddress}/>
+      {user.role === "doctor" && <><Text style={s.profileSectionTitle}>Фотография</Text><View style={s.profilePhotoActions}><MiniAction label="Камера" icon="camera-outline" onPress={()=>void chooseAvatar("camera")}/><MiniAction label="Галерея" icon="images-outline" onPress={()=>void chooseAvatar("gallery")}/></View></>}
+      {user.role === "patient" && <><Text style={s.profileSectionTitle}>Показатели здоровья</Text><ProfileLine label="Возраст" value={age} keyboardType="number-pad" onChangeText={setAge}/><ProfileLine label="Рост" suffix="см" value={height} keyboardType="decimal-pad" onChangeText={setHeight}/><ProfileLine label="Вес" suffix="кг" value={weight} keyboardType="decimal-pad" onChangeText={setWeight}/>{profile ? <View style={s.profileInfoLine}><Text style={s.profileInfoLabel}>Индекс массы тела</Text><Text style={s.profileInfoValue}>{profile.bmi}</Text></View> : null}</>}
         {user.role === "doctor" && !user.verified && (
           <View style={s.verifyNote}>
             <Ionicons
@@ -1104,10 +1117,13 @@ function Profile({ user, onUpdated }: { user: User; onUpdated: (u: User) => void
             </Text>
           </View>
         )}
-        <Button label={busy ? "Сохраняем…" : "Сохранить изменения"} disabled={busy} onPress={() => void saveProfile()} />
-      </View>
+      <View style={s.profileSave}><Button label={busy ? "Сохраняем…" : "Сохранить изменения"} disabled={busy} onPress={() => void saveProfile()} /></View>
     </ScrollView>
   );
+}
+
+function ProfileLine({ label, suffix, ...props }: any) {
+  return <View style={s.profileLine}><Text style={s.profileLineLabel}>{label}</Text><View style={s.profileLineValue}><TextInput {...props} style={s.profileLineInput} placeholderTextColor={colors.muted}/>{suffix ? <Text style={s.profileLineSuffix}>{suffix}</Text> : null}</View></View>;
 }
 
 function UploadModal({
@@ -1640,7 +1656,12 @@ function Sidebar({
 function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) => void }) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[s.bottom, { paddingBottom: Math.max(insets.bottom, 8), minHeight: 66 + insets.bottom }]}>
+    <LinearGradient
+      colors={["#17276E", "#25358D"]}
+      start={{x:0,y:0}}
+      end={{x:1,y:0}}
+      style={[s.bottom, Platform.OS === "web" && ({position:"fixed"} as any), { bottom: Math.max(insets.bottom, 12) }]}
+    >
       {tabsFor(role).map((t) => (
         <Pressable
           key={t}
@@ -1656,14 +1677,14 @@ function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) =>
           <View style={[s.bottomIcon, tab === t && s.bottomIconActive]}><Ionicons
               name={role === "patient" && t === "profile" ? "chatbubble-ellipses-outline" : icon[t]}
               size={23}
-              color={tab === t ? colors.brand : colors.muted}
+              color={tab === t ? colors.white : "#92A0C7"}
             /></View>
-          <Text style={[s.bottomText, tab === t && { color: colors.brand }]}>
+          <Text style={[s.bottomText, tab === t && s.bottomTextActive]}>
             {role === "patient" && t === "profile" ? "Чат" : labels[t]}
           </Text>
         </Pressable>
       ))}
-    </View>
+    </LinearGradient>
   );
 }
 function AvatarView({user,size=44}:{user:User;size?:number}){
@@ -1924,8 +1945,9 @@ const s = StyleSheet.create({
   safeHome: { backgroundColor: "#17214B" },
   safeInner: { flex: 1, width: "100%", backgroundColor: "transparent" },
   shell: { flex: 1, width: "100%", flexDirection: "row", overflow: "hidden" },
-  main: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden" },
+  main: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden", position: "relative" },
   content: { flex: 1, minWidth: 0, maxWidth: "100%" },
+  contentWithBottom: { paddingBottom: 106 },
   top: {
     height: 58,
     paddingHorizontal: 28,
@@ -2013,23 +2035,34 @@ const s = StyleSheet.create({
   },
   sidebarName: { fontWeight: "700", color: colors.ink },
   bottom: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    zIndex: 100,
+    height: 86,
     flexDirection: "row",
-    backgroundColor: colors.white,
-    paddingHorizontal: 10,
-    paddingTop: 6,
+    borderRadius: 28,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     gap: 2,
+    shadowColor: "#101A51",
+    shadowOpacity: .28,
+    shadowRadius: 18,
+    shadowOffset: {width:0,height:8},
+    elevation: 12,
   },
   bottomItem: {
     flex: 1,
-    minHeight: 56,
+    minHeight: 68,
     alignItems: "center",
     justifyContent: "center",
-    gap: 1,
+    gap: 2,
   },
   bottomItemActive: { backgroundColor: "transparent" },
   bottomIcon: { minWidth: 42, height: 31, paddingHorizontal: 10, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  bottomIconActive: { backgroundColor: colors.mint },
-  bottomText: { fontSize: 10, lineHeight: 14, fontWeight: "700", color: colors.muted },
+  bottomIconActive: { backgroundColor: "transparent" },
+  bottomText: { fontSize: 10, lineHeight: 14, fontWeight: "700", color: "#92A0C7" },
+  bottomTextActive: { color: colors.white },
   scroll: {
     padding: 28,
     paddingBottom: 110,
@@ -2193,7 +2226,7 @@ const s = StyleSheet.create({
   authPage: { flex: 1, width: "100%", flexDirection: "row", backgroundColor: colors.paper },
   authPageCompact: {
     flexDirection: "column",
-    backgroundColor: colors.brandDark,
+    backgroundColor: "transparent",
     overflow: "hidden",
   },
   authAside: {
@@ -2233,9 +2266,9 @@ const s = StyleSheet.create({
   },
   authLabSheet: { position: "absolute", width: 122, height: 76, padding: 13, borderRadius: 18, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#FFFFFF13", borderWidth: 1, borderColor: "#FFFFFF20" },
   authLabSheetOne: { right: -24, top: 92, transform: [{rotate:"8deg"}] },
-  authLabSheetTwo: { left: -34, bottom: 112, transform: [{rotate:"-9deg"}] },
+  authLabSheetTwo: { left: -34, top: 68, transform: [{rotate:"-9deg"}] },
   authLabLine: { width: 54, height: 5, borderRadius: 3, marginVertical: 3, backgroundColor: "#FFFFFF35" },
-  authMedicalCross: { position: "absolute", right: 34, bottom: 190, width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#25AFA044" },
+  authMedicalCross: { position: "absolute", right: 34, top: 178, width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#25AFA044" },
   authVersion: {
     position: "absolute",
     bottom: 11,
@@ -2260,7 +2293,7 @@ const s = StyleSheet.create({
     fontSize: 28,
     lineHeight: 33,
     letterSpacing: -0.8,
-    marginTop: 24,
+    marginTop: 214,
     maxWidth: 345,
   },
   authSub: {
@@ -2284,9 +2317,9 @@ const s = StyleSheet.create({
     justifyContent: "flex-start",
     paddingHorizontal: 16,
     paddingTop: 222,
-    paddingBottom: 32,
+    paddingBottom: 72,
   },
-  authFormLoginCompact: { paddingTop: 318 },
+  authFormLoginCompact: { paddingTop: 350 },
   authCard: {
     width: "100%",
     maxWidth: 460,
@@ -2379,12 +2412,22 @@ const s = StyleSheet.create({
     fontWeight: "700",
   },
   switchTextOnDark: { color: "#D8E4FF" },
+  pinBlock: { width: "100%", marginBottom: 14 },
+  pinDots: { height: 30, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, marginTop: 2, marginBottom: 5 },
+  pinDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: colors.muted, backgroundColor: "transparent" },
+  pinDotOnDark: { borderColor: "#FFFFFF78" },
+  pinDotFilled: { borderColor: colors.aqua, backgroundColor: colors.aqua },
+  pinGrid: { width: 264, alignSelf: "center", flexDirection: "row", flexWrap: "wrap", justifyContent: "center" },
+  pinKey: { width: 88, height: 40, alignItems: "center", justifyContent: "center" },
+  pinKeyOnDark: { backgroundColor: "transparent" },
+  pinKeyText: { color: colors.ink, fontSize: 26, lineHeight: 32, fontWeight: "600" },
   textButton: {
     minHeight: 48,
     marginTop: 8,
     alignItems: "center",
     justifyContent: "center",
   },
+  authTextButtonCompact: { minHeight: 36, marginTop: 2 },
   linkButton: {
     minHeight: 44,
     minWidth: 44,
@@ -2793,6 +2836,23 @@ const s = StyleSheet.create({
   doctorRequestSheet: { width: "100%", maxWidth: 680, maxHeight: "88%", alignSelf: "center", marginTop: "auto", backgroundColor: colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, gap: 17 },
   serviceButtons: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
   profileVitals: { width: "100%", gap: 13, marginBottom: 18 },
+  profileHeader: { minHeight: 64, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.paper },
+  profileBack: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  profileScreen: { width: "100%", maxWidth: 760, alignSelf: "center", paddingHorizontal: 22, paddingTop: 10, paddingBottom: 48 },
+  profileIdentity: { minHeight: 94, flexDirection: "row", alignItems: "center", gap: 15, borderBottomWidth: 1, borderBottomColor: colors.line },
+  profileIdentityIcon: { width: 58, height: 58, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: colors.violetSoft },
+  profileIdentityName: { color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: "900" },
+  profileIdentityRole: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 2 },
+  profileSectionTitle: { color: colors.ink, fontSize: 17, lineHeight: 23, fontWeight: "900", marginTop: 28, marginBottom: 6 },
+  profileLine: { minHeight: 66, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, borderBottomColor: colors.line },
+  profileLineLabel: { width: "38%", color: colors.muted, fontSize: 13, lineHeight: 18, fontWeight: "700" },
+  profileLineValue: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
+  profileLineInput: { flex: 1, minWidth: 0, minHeight: 52, paddingHorizontal: 0, color: colors.ink, fontSize: 15, fontWeight: "700", outlineStyle: "none", backgroundColor: "transparent" } as any,
+  profileLineSuffix: { color: colors.muted, fontSize: 13, marginLeft: 6 },
+  profileInfoLine: { minHeight: 66, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: colors.line },
+  profileInfoLabel: { color: colors.muted, fontSize: 13, fontWeight: "700" },
+  profileInfoValue: { color: colors.ink, fontSize: 16, fontWeight: "900" },
+  profileSave: { marginTop: 30, marginBottom: 20 },
   bmiCard: { width: "100%", borderRadius: 16, padding: 14, backgroundColor: colors.aquaSoft },
   bmiValue: { fontSize: 19, fontWeight: "900", color: colors.aqua },
   patientRecord: { borderRadius: 22, padding: 20, backgroundColor: colors.blueSoft, gap: 6 },
