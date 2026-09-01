@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.5";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.6";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
@@ -107,6 +107,7 @@ export default function App() {
 
 function AppContent() {
   const [boot, setBoot] = useState(true);
+  const splashOpacity = useRef(new Animated.Value(1)).current;
   const [user, setUser] = useState<User | null>(null);
   const [tab, setTab] = useState<Tab>("home");
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
@@ -126,7 +127,7 @@ function AppContent() {
     if (viewport) viewport.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
     Object.assign(document.documentElement.style, { width: "100%", height: "100%", overflow: "hidden", overscrollBehavior: "none" });
     Object.assign(document.body.style, { width: "100%", height: "100%", margin: "0", overflow: "hidden", position: "fixed", inset: "0", overscrollBehavior: "none" });
-    if (root) Object.assign(root.style, { width: "100%", height: "100%", overflow: "hidden" });
+    if (root) Object.assign(root.style, { position: "fixed", inset: "0", width: "auto", height: "auto", minHeight: "0", overflow: "hidden" });
   }, []);
   async function refresh(u = user) {
     if (!u) return;
@@ -162,7 +163,7 @@ function AppContent() {
   }
   useEffect(() => {
     (async () => {
-      const minimumSplash = new Promise((resolve) => setTimeout(resolve, 900));
+      const minimumSplash = new Promise((resolve) => setTimeout(resolve, 2000));
       try {
         if (await restoreToken()) {
           const u = await api.me();
@@ -173,11 +174,11 @@ function AppContent() {
         await setToken("");
       } finally {
         await minimumSplash;
-        setBoot(false);
+        Animated.timing(splashOpacity, { toValue: 0, duration: 360, useNativeDriver: true }).start(() => setBoot(false));
       }
     })();
   }, []);
-  if (boot) return <Loading />;
+  if (boot) return <Loading opacity={splashOpacity} />;
   if (!user)
     return (
       <Auth
@@ -247,7 +248,8 @@ function AppContent() {
     : [screenBackground, screenBackground];
   const chromeBackground = immersiveHeader ? "#17214B" : screenBackground;
   return (
-    <LinearGradient colors={chromeColors} start={{x:0,y:0}} end={{x:1,y:1}} style={s.safe}>
+    <View style={s.safe}>
+      {immersiveHeader && <LinearGradient pointerEvents="none" colors={chromeColors} start={{x:0,y:0}} end={{x:1,y:1}} style={s.immersiveBackdrop}/>}
       <SystemChrome dark={immersiveHeader} background={chromeBackground} canvas={screenBackground} />
       <SafeAreaView edges={["top"]} style={s.safeInner}>
       <View style={s.shell}>
@@ -284,7 +286,7 @@ function AppContent() {
         onError={setError}
       />
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -308,6 +310,7 @@ function ageFromBirthDate(value: string) {
 }
 
 function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
+  const entranceOpacity = useRef(new Animated.Value(0)).current;
   const [remembered, setRemembered] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "");
   const [rememberedName, setRememberedName] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_NAME_KEY) || "" : "");
   const [phase, setPhase] = useState<"welcome" | "pin" | "register" | "about">("welcome");
@@ -327,6 +330,9 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   const age = ageFromBirthDate(form.birthDate);
   const profileReady = age > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0;
   const registrationReady = /^\d{4}$/.test(form.pin) && age > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0;
+  useEffect(() => {
+    Animated.timing(entranceOpacity, { toValue: 1, duration: 460, useNativeDriver: true }).start();
+  }, [entranceOpacity]);
   function remember(user: User) {
     if (Platform.OS !== "web" || typeof localStorage === "undefined") return;
     localStorage.setItem(LAST_LOGIN_KEY, user.email);
@@ -383,12 +389,11 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
     setPhase("welcome");
     setError("");
   }
-  const backdrop = <><View style={s.authOrbOne}/><View style={s.authOrbTwo}/><View style={[s.authLabSheet,s.authLabSheetOne]}><Ionicons name="document-text-outline" size={25} color="#B9C6FF"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:46}]}/><View style={[s.authLabLine,{width:30}]}/></View></View><View style={[s.authLabSheet,s.authLabSheetTwo]}><Ionicons name="flask-outline" size={25} color="#7DE0D5"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:38}]}/></View></View></>;
   return (
-    <LinearGradient colors={["#17214B","#3D367A","#146E78"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.authOuter}>
-      <SystemChrome dark background="#17214B" canvas="#146E78"/>
+    <Animated.View style={[s.authOuter,{opacity:entranceOpacity}]}>
+      <Image source={require("./assets/auth-background-v2.png")} resizeMode="cover" style={s.fullBleedImage}/>
+      <SystemChrome dark background="#17214B" canvas="#17214B"/>
       <SafeAreaView edges={["top","right","bottom","left"]} style={s.authScreen}>
-        {backdrop}
         {phase === "welcome" && <View style={s.authWelcome}>
           <View style={s.authWelcomeCopy}><Text style={s.authWelcomeTitle}>{rememberedName ? `Здравствуйте, ${rememberedName}` : "Добро пожаловать"}</Text><Text style={s.authWelcomeSlogan}>{remembered ? "Ваше здоровье под контролем" : "Все результаты здоровья — в одном месте"}</Text></View>
           <View style={s.authWelcomeActions}>{remembered ? <><Pressable accessibilityRole="button" style={({pressed})=>[s.authLoginGlass,pressed&&{transform:[{scale:.98}],opacity:.7}]} onPress={()=>{setPhase("pin");setForm(current=>({...current,pin:""}));}}><Text style={s.authLoginGlassText}>Войти</Text></Pressable><Pressable accessibilityRole="button" style={({pressed})=>[s.authSwitchUser,pressed&&{opacity:.6}]} onPress={switchUser}><Text style={s.authSwitchUserText}>Сменить пользователя</Text></Pressable></> : <><Button label="Зарегистрироваться" icon="person-add-outline" onPress={()=>{setRegisterStep("profile");setPhase("register");}}/><Pressable accessibilityRole="button" style={s.authSecondaryButton} onPress={()=>setPhase("about")}><Text style={s.authSecondaryText}>О приложении</Text></Pressable><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>{setForm(current=>({...current,email:"marat",pin:""}));setRememberedName("Марат");setPhase("pin");}}><Text style={s.authExistingText}>Вход для врача</Text></Pressable></>}</View>
@@ -402,7 +407,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
         {phase === "register" && registerStep === "pin" && <View style={s.authRegisterPIN}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setRegisterStep("profile")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><View><Text style={s.authWelcomeTitle}>Создайте PIN</Text><Text style={s.authRegisterHint}>Четыре цифры для быстрого входа</Text></View><PinPad value={form.pin} dark reveal onChange={changePIN}/>{error?<Text style={s.authPINError}>{error}</Text>:null}<Button label={busy?"Создаём…":"Зарегистрироваться"} disabled={!registrationReady||busy} onPress={()=>void register()}/></View>}
         <Text style={s.authVersionCompact}>LAB HEALTH · v{APP_VERSION}</Text>
       </SafeAreaView>
-    </LinearGradient>
+    </Animated.View>
   );
 }
 
@@ -1830,12 +1835,12 @@ function Banner({ text, onClose }: { text: string; onClose: () => void }) {
     </View>
   );
 }
-function Loading() {
+function Loading({ opacity }: { opacity: Animated.Value }) {
   return (
-    <LinearGradient colors={["#17214B","#3D367A","#146E78"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.loading}>
-      <SystemChrome dark background="#17214B" canvas="#146E78"/>
-      <View style={s.loadingOrb}/><Ionicons name="shield-checkmark-outline" size={58} color="#92E4DA"/><Text style={s.loadingTitle}>Ваше здоровье под контролем</Text><ActivityIndicator color="#C6F4EE"/>
-    </LinearGradient>
+    <Animated.View style={[s.loading,{opacity}]}>
+      <Image source={require("./assets/startup-shield-v2.png")} resizeMode="cover" style={s.fullBleedImage}/>
+      <SystemChrome dark background="#17214B" canvas="#17214B"/>
+    </Animated.View>
   );
 }
 const firstName = (x: string) => x.trim().split(/\s+/)[0] || x;
@@ -1855,6 +1860,7 @@ const date = (x: string) =>
 
 const s = StyleSheet.create({
   safe: { flex: 1, width: "100%", backgroundColor: colors.paper, overflow: "hidden" },
+  immersiveBackdrop: { position: "absolute", left: 0, right: 0, top: 0, height: 340 },
   safeHome: { backgroundColor: "#17214B" },
   safeInner: { flex: 1, width: "100%", backgroundColor: "transparent" },
   shell: { flex: 1, width: "100%", flexDirection: "row", overflow: "hidden" },
@@ -2167,7 +2173,8 @@ const s = StyleSheet.create({
     maxWidth: 420,
     marginTop: 5,
   },
-  authOuter: { flex: 1, backgroundColor: colors.paper },
+  authOuter: { flex: 1, backgroundColor: "#17214B", overflow: "hidden" },
+  fullBleedImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   authScreen: { flex: 1, width: "100%", overflow: "hidden", backgroundColor: "transparent" },
   authWelcome: { flex: 1, width: "100%", maxWidth: 620, alignSelf: "center", justifyContent: "space-between", paddingHorizontal: 24, paddingTop: 150, paddingBottom: 38 },
   authWelcomeCopy: { gap: 12, maxWidth: 520 },
@@ -2990,6 +2997,4 @@ const s = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#17214B",
   },
-  loadingOrb: { position: "absolute", width: 360, height: 360, borderRadius: 180, right: -170, top: -120, backgroundColor: "#8B5CF63A" },
-  loadingTitle: { maxWidth: 300, color: colors.white, fontSize: 27, lineHeight: 34, fontWeight: "900", textAlign: "center", letterSpacing: -.6 },
 });
