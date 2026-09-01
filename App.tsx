@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.8.0";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.0";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
@@ -153,6 +153,7 @@ function AppContent() {
   }
   useEffect(() => {
     (async () => {
+      const minimumSplash = new Promise((resolve) => setTimeout(resolve, 900));
       try {
         if (await restoreToken()) {
           const u = await api.me();
@@ -162,6 +163,7 @@ function AppContent() {
       } catch {
         await setToken("");
       } finally {
+        await minimumSplash;
         setBoot(false);
       }
     })();
@@ -278,12 +280,9 @@ function AppContent() {
 }
 
 function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
-  const { width } = useWindowDimensions();
-  const compact = width < 720;
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [role, setRole] = useState<Role>("patient");
   const [remembered, setRemembered] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "");
   const [rememberedName, setRememberedName] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_NAME_KEY) || "" : "");
+  const [phase, setPhase] = useState<"welcome" | "pin" | "identify" | "register" | "about">("welcome");
   const [form, setForm] = useState({
     email: Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "",
     pin: "",
@@ -296,210 +295,86 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const registrationReady = mode !== "register" || (role === "doctor"
-    ? !!form.specialization.trim()
-    : Number(form.age) > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0);
-  async function submit() {
-    if (!/^\d{4}$/.test(form.pin)) {
-      setError("Введите PIN из четырёх цифр.");
-      return;
-    }
+  const registrationReady = !!form.email.trim() && /^\d{4}$/.test(form.pin) && Number(form.age) > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0;
+  function remember(user: User) {
+    if (Platform.OS !== "web" || typeof localStorage === "undefined") return;
+    localStorage.setItem(LAST_LOGIN_KEY, user.email);
+    localStorage.setItem(LAST_NAME_KEY, firstName(user.full_name));
+  }
+  async function login(pin: string) {
+    if (busy || !form.email.trim() || !/^\d{4}$/.test(pin)) return;
     setBusy(true);
     setError("");
     try {
-      const r = mode === "login"
-          ? await api.login(form.email, form.pin)
-          : await api.register({
-              ...form,
-              role,
-              age: role === "patient" ? Number(form.age) : undefined,
-              heightCM: role === "patient" ? Number(form.heightCM) : undefined,
-              weightKG: role === "patient" ? Number(form.weightKG) : undefined,
-            });
-      if (Platform.OS === "web" && typeof localStorage !== "undefined") {
-        localStorage.setItem(LAST_LOGIN_KEY, form.email);
-        localStorage.setItem(LAST_NAME_KEY, firstName(r.user.full_name));
-      }
+      const r = await api.login(form.email, pin);
+      remember(r.user);
       onDone(r.user, r.token);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
+      setForm((current) => ({ ...current, pin: "" }));
     } finally {
       setBusy(false);
     }
   }
+  function changePIN(pin: string) {
+    setForm((current) => ({ ...current, pin }));
+    setError("");
+    if ((phase === "pin" || phase === "identify") && pin.length === 4) setTimeout(() => void login(pin), 0);
+  }
+  async function register() {
+    if (!registrationReady || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api.register({ ...form, role: "patient", age: Number(form.age), heightCM: Number(form.heightCM), weightKG: Number(form.weightKG) });
+      remember(r.user);
+      onDone(r.user, r.token);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка регистрации");
+    } finally {
+      setBusy(false);
+    }
+  }
+  function forget() {
+    setRemembered("");
+    setRememberedName("");
+    setForm((current) => ({ ...current, email: "", pin: "" }));
+    setPhase("welcome");
+    setError("");
+    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
+      localStorage.removeItem(LAST_LOGIN_KEY);
+      localStorage.removeItem(LAST_NAME_KEY);
+    }
+  }
+  const backdrop = <><View style={s.authOrbOne}/><View style={s.authOrbTwo}/><View style={[s.authLabSheet,s.authLabSheetOne]}><Ionicons name="document-text-outline" size={25} color="#B9C6FF"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:46}]}/><View style={[s.authLabLine,{width:30}]}/></View></View><View style={[s.authLabSheet,s.authLabSheetTwo]}><Ionicons name="flask-outline" size={25} color="#7DE0D5"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:38}]}/></View></View></>;
   return (
-    <LinearGradient colors={["#17214B", "#3D367A", "#146E78"]} start={{x:0,y:0}} end={{x:1,y:1}} style={[s.authOuter, compact && s.authOuterCompact]}>
-      <SystemChrome dark={compact} background={compact ? "#17214B" : colors.paper} />
-    <SafeAreaView style={[s.authPage, compact && s.authPageCompact]}>
-      <LinearGradient
-        colors={compact ? ["transparent", "transparent"] : ["#17214B", "#3D367A", "#146E78"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[s.authAside, compact && s.authAsideCompact]}
-      >
-        <View style={s.authOrbOne} />
-        {!compact && <View style={s.authOrbTwo} />}
-        <View style={[s.authLabSheet, s.authLabSheetOne]}><Ionicons name="document-text-outline" size={25} color="#B9C6FF"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:46}]}/><View style={[s.authLabLine,{width:30}]}/></View></View>
-        <View style={[s.authLabSheet, s.authLabSheetTwo]}><Ionicons name="flask-outline" size={25} color="#7DE0D5"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:38}]}/></View></View>
-        {!compact ? <View style={s.authMedicalCross}><Ionicons name="medical" size={21} color="#FFFFFFB8"/></View> : null}
-        {!compact ? <Text style={s.authVersion}>LAB HEALTH · v{APP_VERSION}</Text> : null}
-        <Text style={[s.authHero, compact && s.authHeroCompact]}>
-          Твои анализы собраны. Здоровье — под контролем.
-        </Text>
-        {!compact && (
-          <Text style={s.authSub}>
-            Загрузите бланк, получите структурированный результат и при
-            необходимости безопасно откройте его врачу.
-          </Text>
-        )}
-        {!compact && (
-          <View style={s.authPoint}>
-            <Ionicons name="shield-checkmark" size={22} color={colors.mint} />
-            <Text style={s.authPointText}>
-              Контролируемый доступ и медицинский дисклеймер
-            </Text>
-          </View>
-        )}
-      </LinearGradient>
-      <ScrollView
-        style={compact && s.authScrollCompact}
-        contentContainerStyle={[
-          s.authForm,
-          compact && s.authFormCompact,
-          compact && mode === "login" && s.authFormLoginCompact,
-        ]}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={[s.authCard, compact && s.authCardCompact]}>
-          <Text style={[s.cardTitle, compact && s.authTextLight]}>
-            {mode === "login" ? rememberedName ? `Здравствуйте, ${rememberedName}` : "Вход по PIN" : "Создать профиль"}
-          </Text>
-          <Text style={[s.cardHint, compact && s.authHintLight]}>
-            {mode === "login"
-              ? remembered ? "Введите PIN, чтобы открыть приложение." : "Укажите логин один раз и введите PIN."
-              : "Выберите роль, заполните данные и придумайте PIN из четырёх цифр."}
-          </Text>
-          {mode === "register" && (
-            <>
-              <View style={[s.segment, compact && s.segmentOnDark]}>
-                <Segment
-                  active={role === "patient"}
-                  label="Я пациент"
-                  icon="person"
-                  dark={compact}
-                  onPress={() => setRole("patient")}
-                />
-                <Segment
-                  active={role === "doctor"}
-                  label="Я врач"
-                  icon="medkit"
-                  dark={compact}
-                  onPress={() => setRole("doctor")}
-                />
-              </View>
-              <Field
-                label="Имя (необязательно)"
-                dark={compact}
-                value={form.fullName}
-                onChangeText={(v: string) => setForm({ ...form, fullName: v })}
-              />
-              {role === "doctor" && (
-                <>
-                  <Field
-                    label="Специализация"
-                    dark={compact}
-                    placeholder="Например, эндокринолог"
-                    value={form.specialization}
-                    onChangeText={(v: string) =>
-                      setForm({ ...form, specialization: v })
-                    }
-                  />
-                  <Field
-                    label="Номер лицензии (необязательно)"
-                    dark={compact}
-                    value={form.licenseNumber}
-                    onChangeText={(v: string) =>
-                      setForm({ ...form, licenseNumber: v })
-                    }
-                  />
-                </>
-              )}
-              {role === "patient" && (
-                <View style={s.registrationVitals}>
-                  <Field
-                    label="Возраст"
-                    dark={compact}
-                    keyboardType="number-pad"
-                    placeholder="35"
-                    value={form.age}
-                    onChangeText={(v: string) => setForm({ ...form, age: v })}
-                  />
-                  <Field
-                    label="Рост, см"
-                    dark={compact}
-                    keyboardType="decimal-pad"
-                    placeholder="175"
-                    value={form.heightCM}
-                    onChangeText={(v: string) => setForm({ ...form, heightCM: v })}
-                  />
-                  <Field
-                    label="Вес, кг"
-                    dark={compact}
-                    keyboardType="decimal-pad"
-                    placeholder="70"
-                    value={form.weightKG}
-                    onChangeText={(v: string) => setForm({ ...form, weightKG: v })}
-                  />
-                </View>
-              )}
-            </>
-          )}
-          {(!remembered || mode === "register") && (
-            <Field label="Логин" dark={compact} autoCapitalize="none" value={form.email} onChangeText={(v: string) => setForm({ ...form, email: v })}/>
-          )}
-          <PinPad value={form.pin} dark={compact} onChange={(pin) => setForm({ ...form, pin })}/>
-          {error ? <Text style={s.error}>{error}</Text> : null}
-          <Button
-            label={
-              busy
-                ? "Подождите…"
-                : mode === "login"
-                  ? "Войти"
-                  : "Зарегистрироваться"
-            }
-            onPress={submit}
-            disabled={busy || form.pin.length !== 4 || !form.email.trim() || !registrationReady}
-          />
-          {mode === "login" && remembered ? <Pressable accessibilityRole="button" style={[s.textButton,compact&&s.authTextButtonCompact]} onPress={() => { setRemembered(""); setRememberedName(""); setForm({...form,email:"",pin:""}); if (Platform.OS === "web" && typeof localStorage !== "undefined") { localStorage.removeItem(LAST_LOGIN_KEY); localStorage.removeItem(LAST_NAME_KEY); } }}><Text style={[s.switchText, compact && s.switchTextOnDark]}>Сменить пользователя</Text></Pressable> : null}
-          <Pressable
-            accessibilityRole="button"
-            style={[s.textButton, compact && s.authTextButtonCompact]}
-            onPress={() => {
-              setMode(mode === "login" ? "register" : "login");
-              setForm({...form,pin:"",email: mode === "register" ? remembered : form.email});
-              setError("");
-            }}
-          >
-            <Text style={[s.switchText, compact && s.switchTextOnDark]}>
-              {mode === "login"
-                ? "Нет аккаунта? Создать"
-                : "Уже есть аккаунт? Войти"}
-            </Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-      {compact ? <Text style={s.authVersionCompact}>LAB HEALTH · v{APP_VERSION}</Text> : null}
-    </SafeAreaView>
+    <LinearGradient colors={["#17214B","#3D367A","#146E78"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.authOuter}>
+      <SystemChrome dark background="#17214B"/>
+      <SafeAreaView edges={["top","right","bottom","left"]} style={s.authScreen}>
+        {backdrop}
+        {phase === "welcome" && <View style={s.authWelcome}>
+          <View style={s.authWelcomeCopy}><Text style={s.authWelcomeTitle}>{rememberedName ? `Здравствуйте, ${rememberedName}` : "Добро пожаловать"}</Text><Text style={s.authWelcomeSlogan}>{remembered ? "Ваше здоровье под контролем" : "Все результаты здоровья — в одном месте"}</Text></View>
+          <View style={s.authWelcomeActions}>{remembered ? <Button label="Войти" icon="arrow-forward" onPress={()=>{setPhase("pin");setForm(current=>({...current,pin:""}));}}/> : <><Button label="Зарегистрироваться" icon="person-add-outline" onPress={()=>setPhase("register")}/><Pressable accessibilityRole="button" style={s.authSecondaryButton} onPress={()=>setPhase("about")}><Text style={s.authSecondaryText}>О приложении</Text></Pressable><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>setPhase("identify")}><Text style={s.authExistingText}>Уже есть аккаунт</Text></Pressable></>}</View>
+        </View>}
+        {(phase === "pin" || phase === "identify") && <View style={s.authPINScreen}>
+          {phase === "identify" && <View style={s.authLoginField}><Field label="Логин" dark autoCapitalize="none" value={form.email} onChangeText={(email:string)=>setForm(current=>({...current,email,pin:""}))}/></View>}
+          <PinPad value={form.pin} dark onChange={changePIN} loginMode onLogout={forget}/>
+          {busy&&<ActivityIndicator color={colors.white}/>} {error?<Text style={s.authPINError}>{error}</Text>:null}
+          {phase === "identify"&&<Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>setPhase("welcome")}><Text style={s.authExistingText}>Назад</Text></Pressable>}
+        </View>}
+        {phase === "about" && <View style={s.authAbout}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Lab HEALTH</Text><Text style={s.authAboutText}>Собирает лабораторные исследования в одном месте, выделяет показатели и помогает следить за их динамикой. Автоматическая оценка не заменяет врача.</Text></View>}
+        {phase === "register" && <ScrollView style={s.authRegisterScroll} contentContainerStyle={s.authRegisterBody} keyboardShouldPersistTaps="handled"><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Регистрация</Text><Text style={s.authRegisterHint}>Создайте профиль пользователя</Text><Field label="Имя" dark value={form.fullName} onChangeText={(fullName:string)=>setForm(current=>({...current,fullName}))}/><View style={s.registrationVitals}><Field label="Возраст" dark keyboardType="number-pad" value={form.age} onChangeText={(age:string)=>setForm(current=>({...current,age}))}/><Field label="Рост, см" dark keyboardType="decimal-pad" value={form.heightCM} onChangeText={(heightCM:string)=>setForm(current=>({...current,heightCM}))}/><Field label="Вес, кг" dark keyboardType="decimal-pad" value={form.weightKG} onChangeText={(weightKG:string)=>setForm(current=>({...current,weightKG}))}/></View><Field label="Логин" dark autoCapitalize="none" value={form.email} onChangeText={(email:string)=>setForm(current=>({...current,email}))}/><PinPad value={form.pin} dark onChange={changePIN}/>{error?<Text style={s.authPINError}>{error}</Text>:null}<Button label={busy?"Создаём…":"Зарегистрироваться"} disabled={!registrationReady||busy} onPress={()=>void register()}/><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>{setPhase("identify");setForm(current=>({...current,pin:""}));}}><Text style={s.authExistingText}>Уже есть аккаунт</Text></Pressable></ScrollView>}
+        <Text style={s.authVersionCompact}>LAB HEALTH · v{APP_VERSION}</Text>
+      </SafeAreaView>
     </LinearGradient>
   );
 }
 
-function PinPad({ value, onChange, dark }: { value: string; onChange: (value: string) => void; dark?: boolean }) {
-  const keys: Array<number | "back" | null> = [1,2,3,4,5,6,7,8,9,null,0,"back"];
+function PinPad({ value, onChange, dark, loginMode=false, onLogout }: { value: string; onChange: (value: string) => void; dark?: boolean; loginMode?: boolean; onLogout?:()=>void }) {
+  const keys: Array<number | "logout" | "face" | "back"> = [1,2,3,4,5,6,7,8,9,loginMode?"logout":"back",0,"face"];
   return <View style={s.pinBlock}>
-    <Text style={[s.label, dark && s.labelOnDark]}>PIN-код</Text>
-    <View accessibilityLabel={`Введено цифр: ${value.length}`} style={s.pinDots}>{[0,1,2,3].map((index)=><View key={index} style={[s.pinDot, dark && s.pinDotOnDark, index < value.length && s.pinDotFilled]}/>)}</View>
-    <View style={s.pinGrid}>{keys.map((key,index)=>key===null?<View key={index} style={s.pinKey}/>:<Pressable key={String(key)} accessibilityRole="button" accessibilityLabel={key==="back"?"Удалить цифру":String(key)} style={({pressed})=>[s.pinKey,dark&&s.pinKeyOnDark,pressed&&{opacity:.55}]} onPress={()=>key==="back"?onChange(value.slice(0,-1)):value.length<4&&onChange(`${value}${key}`)}>{key==="back"?<Ionicons name="backspace-outline" size={25} color={dark?colors.white:colors.ink}/>:<Text style={[s.pinKeyText,dark&&{color:colors.white}]}>{key}</Text>}</Pressable>)}</View>
+    <Pressable accessibilityRole="button" accessibilityLabel="Удалить последнюю цифру" onPress={()=>onChange(value.slice(0,-1))} style={s.pinDotsRow}><View accessibilityLabel={`Введено цифр: ${value.length}`} style={s.pinDots}>{[0,1,2,3].map((index)=><View key={index} style={[s.pinDot,dark&&s.pinDotOnDark,index<value.length&&s.pinDotFilled]}/>)}</View>{value.length>0&&<Ionicons name="backspace-outline" size={21} color="#FFFFFFB5"/>}</Pressable>
+    <View style={s.pinGrid}>{keys.map((key,index)=>{const disabled=key==="face";const label=key==="logout"?"Выйти":key==="face"?"Face ID":key==="back"?"Удалить":String(key);return <Pressable key={`${key}-${index}`} disabled={disabled} accessibilityRole="button" accessibilityLabel={label} style={({pressed})=>[s.pinKey,dark&&typeof key==="number"&&s.pinKeyOnDark,typeof key!=="number"&&s.pinUtility,disabled&&s.pinUtilityDisabled,pressed&&{opacity:.55}]} onPress={()=>key==="logout"?onLogout?.():key==="back"?onChange(value.slice(0,-1)):typeof key==="number"&&value.length<4&&onChange(`${value}${key}`)}>{typeof key==="number"?<Text style={[s.pinKeyText,dark&&{color:colors.white}]}>{key}</Text>:key==="face"?<><Ionicons name="scan-outline" size={23} color="#FFFFFF64"/><Text style={s.pinUtilityTextDisabled}>Face ID</Text></>:key==="logout"?<Text style={s.pinUtilityText}>Выйти</Text>:<Ionicons name="backspace-outline" size={24} color="#FFFFFFB5"/>}</Pressable>})}</View>
   </View>;
 }
 
@@ -713,8 +588,7 @@ function Analyses({
 }) {
   const [mode, setMode] = useState<"research" | "dynamics">("research");
   const [marker, setMarker] = useState("");
-  const [dynamicFilter, setDynamicFilter] = useState<"all" | "normal" | "abnormal">("all");
-  const [dynamicNewest, setDynamicNewest] = useState(true);
+  const [dynamicQuery, setDynamicQuery] = useState("");
   const [infoOpen,setInfoOpen]=useState(false);
   const groups = useMemo(() => {
     const grouped = new Map<string, Analysis[]>();
@@ -734,7 +608,7 @@ function Analyses({
     result.forEach((points) => points.sort((a,b) => a.date.localeCompare(b.date)));
     return result;
   }, [data]);
-  const dynamicEntries = useMemo(() => Array.from(markerSeries.entries()).map(([name, points]) => ({ name, points, latest: points[points.length - 1]! })).filter((entry) => dynamicFilter === "all" || (dynamicFilter === "normal" ? entry.latest.status === "normal" : entry.latest.status !== "normal")).sort((a,b) => (dynamicNewest ? -1 : 1) * a.latest.date.localeCompare(b.latest.date)), [markerSeries, dynamicFilter, dynamicNewest]);
+  const dynamicEntries = useMemo(() => Array.from(markerSeries.entries()).map(([name, points]) => ({ name, points, latest: points[points.length - 1]! })).filter((entry) => entry.name.toLocaleLowerCase("ru-RU").includes(dynamicQuery.trim().toLocaleLowerCase("ru-RU"))).sort((a,b) => a.name.localeCompare(b.name,"ru-RU")), [markerSeries, dynamicQuery]);
   const series = marker ? markerSeries.get(marker) || [] : [];
   const overall = data.find((analysis) => analysis.ai_review?.doctor_needed)?.ai_review || data[0]?.ai_review;
   return (
@@ -746,14 +620,10 @@ function Analyses({
         <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View><View style={s.compactCardGrid}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} onPress={() => onOpen(analysis)} onDelete={onDelete ? () => onDelete(analysis) : undefined} />)}</View></View>)}</View>
       ) : data.length && mode === "dynamics" ? (
         <View style={s.dynamicsScreen}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.dynamicFilters}>
-            <Pressable accessibilityRole="button" onPress={()=>setDynamicNewest((value)=>!value)} style={s.dynamicSort}><Ionicons name="swap-vertical" size={18} color={colors.white}/><Text style={s.dynamicSortText}>{dynamicNewest ? "Сначала новые" : "Сначала старые"}</Text></Pressable>
-            <Choice active={dynamicFilter === "all"} label="Все" onPress={() => setDynamicFilter("all")}/>
-            <Choice active={dynamicFilter === "normal"} label="● В норме" onPress={() => setDynamicFilter("normal")}/>
-            <Choice active={dynamicFilter === "abnormal"} label="● Вне нормы" onPress={() => setDynamicFilter("abnormal")}/>
-          </ScrollView>
+          <Text style={s.dynamicHistoryTitle}>Выберите показатель</Text>
+          <View style={s.doctorSearch}><Ionicons name="search" size={20} color={colors.muted}/><TextInput style={s.doctorSearchInput} value={dynamicQuery} onChangeText={setDynamicQuery} placeholder="Например, креатинин"/></View>
           <View style={s.dynamicCards}>{dynamicEntries.map((entry) => <DynamicMarkerCard key={entry.name} name={entry.name} points={entry.points} onPress={() => setMarker(entry.name)}/>)}</View>
-          {!dynamicEntries.length && <Empty icon="stats-chart-outline" title="Нет показателей" text="Для выбранного фильтра результатов пока нет."/>}
+          {!dynamicEntries.length && <Empty icon="stats-chart-outline" title="Показатель не найден" text="Измените запрос или загрузите исследование с этим показателем."/>}
         </View>
       ) : (
         <Empty
@@ -1098,7 +968,7 @@ function Profile({ user, onUpdated }: { user: User; onUpdated: (u: User) => void
   }
   return (
     <ScrollView contentContainerStyle={s.profileScreen}>
-      <View style={s.profileIdentity}><View style={s.profileIdentityIcon}>{user.role === "doctor" ? <AvatarView user={user} size={58}/> : <Ionicons name="person-outline" size={31} color={colors.brand}/>}</View><View style={{flex:1}}><Text style={s.profileIdentityName}>{user.full_name}</Text><Text style={s.profileIdentityRole}>{user.role === "doctor" ? user.specialization : "Пациент"}</Text></View></View>
+      <View style={s.profileIdentity}><View style={s.profileIdentityIcon}>{user.role === "doctor" ? <AvatarView user={user} size={58}/> : <Ionicons name="person-outline" size={31} color={colors.brand}/>}</View><View style={{flex:1}}><Text style={s.profileIdentityName}>{user.full_name}</Text><Text style={s.profileIdentityRole}>{user.role === "doctor" ? user.specialization : "Пользователь"}</Text></View></View>
       <Text style={s.profileSectionTitle}>Личные данные</Text>
       <ProfileLine label="Имя" value={fullName} onChangeText={setFullName}/>
       <ProfileLine label="Почта" value={user.email} editable={false}/>
@@ -1648,7 +1518,7 @@ function Sidebar({
           {user.full_name}
         </Text>
         <Text style={s.analysisMeta}>
-          {user.role === "doctor" ? user.specialization : "Пациент"}
+          {user.role === "doctor" ? user.specialization : "Пользователь"}
         </Text>
       </View>
     </View>
@@ -1657,8 +1527,8 @@ function Sidebar({
 function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) => void }) {
   const insets = useSafeAreaInsets();
   const dockInsets = Platform.OS === "web"
-    ? ({ bottom: 0, height: "calc(66px + env(safe-area-inset-bottom, 0px))", paddingBottom: "env(safe-area-inset-bottom, 0px)" } as any)
-    : { bottom: 0, height: 66 + insets.bottom, paddingBottom: insets.bottom };
+    ? ({ bottom: "calc(8px + env(safe-area-inset-bottom, 0px))", height: 66 } as any)
+    : { bottom: 8 + insets.bottom, height: 66 };
   return (
     <View testID="bottom-nav" style={[s.bottom, dockInsets]}>
       {tabsFor(role).map((t) => (
@@ -1919,9 +1789,10 @@ function Banner({ text, onClose }: { text: string; onClose: () => void }) {
 }
 function Loading() {
   return (
-    <View style={s.loading}>
-      <ActivityIndicator size="large" color={colors.brand} />
-    </View>
+    <LinearGradient colors={["#17214B","#3D367A","#146E78"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.loading}>
+      <SystemChrome dark background="#17214B"/>
+      <View style={s.loadingOrb}/><Ionicons name="shield-checkmark-outline" size={58} color="#92E4DA"/><Text style={s.loadingTitle}>Ваше здоровье под контролем</Text><ActivityIndicator color="#C6F4EE"/>
+    </LinearGradient>
   );
 }
 const firstName = (x: string) => x.trim().split(/\s+/)[0] || x;
@@ -2036,20 +1907,19 @@ const s = StyleSheet.create({
     position: "absolute",
     left: 8,
     right: 8,
-    bottom: 0,
+    bottom: 8,
     zIndex: 100,
     height: 66,
     flexDirection: "row",
     borderTopLeftRadius: 25,
     borderTopRightRadius: 25,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
+    borderBottomLeftRadius: 25,
+    borderBottomRightRadius: 25,
     paddingHorizontal: 7,
     paddingTop: 3,
     gap: 2,
     backgroundColor: "#FFFFFFFA",
     borderWidth: 1,
-    borderBottomWidth: 0,
     borderColor: "#E4E7F0",
     shadowColor: "#17214B",
     shadowOpacity: .14,
@@ -2228,6 +2098,25 @@ const s = StyleSheet.create({
     marginTop: 5,
   },
   authOuter: { flex: 1, backgroundColor: colors.paper },
+  authScreen: { flex: 1, width: "100%", overflow: "hidden", backgroundColor: "transparent" },
+  authWelcome: { flex: 1, width: "100%", maxWidth: 620, alignSelf: "center", justifyContent: "space-between", paddingHorizontal: 24, paddingTop: 150, paddingBottom: 38 },
+  authWelcomeCopy: { gap: 12, maxWidth: 520 },
+  authWelcomeTitle: { color: colors.white, fontSize: 34, lineHeight: 40, fontWeight: "900", letterSpacing: -1 },
+  authWelcomeSlogan: { color: "#D7E7EA", fontSize: 19, lineHeight: 27, fontWeight: "600", maxWidth: 420 },
+  authWelcomeActions: { width: "100%", maxWidth: 430, alignSelf: "center", gap: 10 },
+  authSecondaryButton: { minHeight: 52, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF18", borderWidth: 1, borderColor: "#FFFFFF28" },
+  authSecondaryText: { color: colors.white, fontSize: 15, fontWeight: "800" },
+  authExistingButton: { minHeight: 42, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  authExistingText: { color: "#D8E4FF", fontSize: 13, fontWeight: "700" },
+  authPINScreen: { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center", justifyContent: "center", paddingHorizontal: 20, paddingBottom: 22 },
+  authLoginField: { width: "100%", marginBottom: 12 },
+  authPINError: { color: "#FFD0D8", fontSize: 13, lineHeight: 18, textAlign: "center", marginTop: 9 },
+  authAbout: { flex: 1, width: "100%", maxWidth: 620, alignSelf: "center", padding: 24, paddingTop: 58, gap: 22 },
+  authAboutText: { color: "#D7E7EA", fontSize: 17, lineHeight: 27, maxWidth: 530 },
+  authBack: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF14" },
+  authRegisterScroll: { flex: 1, width: "100%" },
+  authRegisterBody: { width: "100%", maxWidth: 540, alignSelf: "center", paddingHorizontal: 20, paddingTop: 18, paddingBottom: 74, gap: 5 },
+  authRegisterHint: { color: "#D7E7EA", fontSize: 14, marginTop: 2, marginBottom: 18 },
   authOuterCompact: { backgroundColor: "#17214B" },
   authPage: { flex: 1, width: "100%", flexDirection: "row", backgroundColor: colors.paper },
   authPageCompact: {
@@ -2437,14 +2326,19 @@ const s = StyleSheet.create({
   },
   switchTextOnDark: { color: "#D8E4FF" },
   pinBlock: { width: "100%", marginBottom: 12 },
-  pinDots: { height: 34, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 19, marginTop: 1, marginBottom: 7 },
+  pinDotsRow: { width: "100%", minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, marginBottom: 13 },
+  pinDots: { height: 34, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 19 },
   pinDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: colors.muted, backgroundColor: "transparent" },
   pinDotOnDark: { borderColor: "#FFFFFF78" },
   pinDotFilled: { borderColor: colors.aqua, backgroundColor: colors.aqua },
-  pinGrid: { width: "100%", maxWidth: 360, alignSelf: "center", flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 7 },
-  pinKey: { width: "31%", height: 52, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  pinGrid: { width: "100%", maxWidth: 380, alignSelf: "center", flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 10 },
+  pinKey: { width: "31%", height: 64, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   pinKeyOnDark: { backgroundColor: "#FFFFFF10", borderWidth: 1, borderColor: "#FFFFFF17" },
   pinKeyText: { color: colors.ink, fontSize: 27, lineHeight: 33, fontWeight: "600" },
+  pinUtility: { gap: 3, backgroundColor: "transparent" },
+  pinUtilityDisabled: { opacity: .72 },
+  pinUtilityText: { color: "#E1E9F6", fontSize: 12, fontWeight: "800" },
+  pinUtilityTextDisabled: { color: "#FFFFFF64", fontSize: 10, fontWeight: "700" },
   textButton: {
     minHeight: 48,
     marginTop: 8,
@@ -3012,6 +2906,10 @@ const s = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.paper,
+    gap: 20,
+    overflow: "hidden",
+    backgroundColor: "#17214B",
   },
+  loadingOrb: { position: "absolute", width: 360, height: 360, borderRadius: 180, right: -170, top: -120, backgroundColor: "#8B5CF63A" },
+  loadingTitle: { maxWidth: 300, color: colors.white, fontSize: 27, lineHeight: 34, fontWeight: "900", textAlign: "center", letterSpacing: -.6 },
 });
