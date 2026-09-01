@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.4";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.5";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
@@ -82,7 +82,7 @@ const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   analyses: "flask-outline",
   patients: "people-outline",
   consultations: "chatbubbles-outline",
-  doctors: "medkit-outline",
+  doctors: "calendar-outline",
   ai: "sparkles-outline",
   guides: "library-outline",
   profile: "person-outline",
@@ -92,7 +92,7 @@ const labels: Record<Tab, string> = {
   analyses: "Анализы",
   patients: "Пациенты",
   consultations: "Визиты",
-  doctors: "Врачи",
+  doctors: "Запись",
   ai: "AI",
   guides: "Guides",
   profile: "Профиль",
@@ -241,7 +241,7 @@ function AppContent() {
       />
     );
   const immersiveHeader = tab === "home";
-  const screenBackground = tab === "profile" && user.role === "patient" ? colors.white : colors.paper;
+  const screenBackground = colors.paper;
   const chromeColors: readonly [string, string, ...string[]] = immersiveHeader
     ? ["#17214B", "#3C3A86", "#147D83"]
     : [screenBackground, screenBackground];
@@ -330,7 +330,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   function remember(user: User) {
     if (Platform.OS !== "web" || typeof localStorage === "undefined") return;
     localStorage.setItem(LAST_LOGIN_KEY, user.email);
-    localStorage.setItem(LAST_NAME_KEY, firstName(user.full_name));
+    localStorage.setItem(LAST_NAME_KEY, user.role === "doctor" ? "Марат" : firstName(user.full_name));
   }
   async function login(pin: string) {
     if (busy || !form.email.trim() || !/^\d{4}$/.test(pin)) return;
@@ -816,7 +816,7 @@ function DoctorSchedule({ user, compact }: { user: User; compact: boolean }) {
   function toggle(d:number,h:number,m:number){if(!edit)return;const value=addDays(week,d);value.setHours(h,m,0,0);if(value<=new Date())return;const key=slotKey(value);if(slots.some(x=>slotKey(x.start_at)===key&&x.status==="booked"))return;setSelected(current=>{const next=new Set(current);next.has(key)?next.delete(key):next.add(key);return next})}
   function beginEdit(){if(addDays(week,7).getTime()-Date.now()<48*60*60*1000)setWeek(addDays(week,7));setEdit(true)}
   async function save(){setBusy(true);try{await api.saveSchedule(from,to,[...selected]);setEdit(false);await load()}catch(e){Alert.alert("Не удалось сохранить",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
-  return <View style={[s.schedulePage, compact && s.schedulePageCompact]}><LinearGradient colors={["#17214B","#3C3A86","#147D83"]} style={[s.doctorWelcome,compact&&s.doctorWelcomeCompact]}><View><Text style={s.welcomeOver}>РАСПИСАНИЕ</Text><Text style={s.doctorWelcomeTitle}>Здравствуйте, {firstName(user.full_name)}</Text></View><Pressable style={s.scheduleEdit} onPress={()=>edit?void save():beginEdit()}><Ionicons name={edit?"checkmark":"create-outline"} size={19} color={colors.white}/><Text style={s.scheduleEditText}>{busy?"Сохраняем…":edit?"Готово":"Изменить"}</Text></Pressable></LinearGradient>
+  return <View style={[s.schedulePage, compact && s.schedulePageCompact]}><LinearGradient colors={["#17214B","#3C3A86","#147D83"]} style={[s.doctorWelcome,compact&&s.doctorWelcomeCompact]}><View><Text style={s.welcomeOver}>РАСПИСАНИЕ</Text><Text style={s.doctorWelcomeTitle}>Здравствуйте, Марат</Text></View><Pressable style={s.scheduleEdit} onPress={()=>edit?void save():beginEdit()}><Ionicons name={edit?"checkmark":"create-outline"} size={19} color={colors.white}/><Text style={s.scheduleEditText}>{busy?"Сохраняем…":edit?"Готово":"Изменить"}</Text></Pressable></LinearGradient>
     <View style={s.weekToolbar}><Pressable style={s.iconButton} onPress={()=>setWeek(addDays(week,-7))}><Ionicons name="chevron-back" size={22}/></Pressable><Pressable onPress={()=>setWeek(weekStart())}><Text style={s.weekTitle}>{week.toLocaleDateString("ru-RU",{day:"numeric",month:"short"})} — {addDays(week,6).toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}</Text></Pressable><Pressable style={s.iconButton} onPress={()=>setWeek(addDays(week,7))}><Ionicons name="chevron-forward" size={22}/></Pressable></View>
     {edit&&<View style={s.editHint}><Ionicons name="information-circle-outline" size={20} color={colors.violet}/><Text style={s.aiDisclaimer}>Выберите будущие ячейки. Прошедшее время недоступно.</Text></View>}
     <ScrollView horizontal style={s.calendarHorizontal} contentContainerStyle={{minWidth:760}}><View><View style={s.calendarHeader}><View style={s.timeColumn}/>{weekDays.map((label,i)=><View key={label} style={s.dayHeader}><Text style={s.dayName}>{label}</Text><Text style={s.dayNumber}>{addDays(week,i).getDate()}</Text></View>)}</View><ScrollView style={s.calendarVertical} nestedScrollEnabled>{rows.map(({h,m})=><View key={`${h}-${m}`} style={s.calendarRow}><View style={s.timeColumn}><Text style={s.timeText}>{String(h).padStart(2,"0")}:{String(m).padStart(2,"0")}</Text></View>{weekDays.map((_,d)=>{const value=addDays(week,d);value.setHours(h,m,0,0);const past=value<=new Date();const key=slotKey(value);const booked=slots.find(x=>slotKey(x.start_at)===key&&x.status==="booked");const available=selected.has(key)&&!past;return <Pressable key={d} disabled={past} onPress={()=>toggle(d,h,m)} style={[s.calendarCell,past&&s.pastCell,available&&s.availableCell,booked&&s.bookedCell]}><Text numberOfLines={2} style={[s.cellText,(available||booked)&&{color:colors.white}]}>{booked?(booked.patient_name||"Пациент"):available?"Доступно":""}</Text></Pressable>})}</View>)}</ScrollView></View></ScrollView>
@@ -851,7 +851,6 @@ function Guides(){
 }
 
 function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled, onTargetBack }: { user: User; onRefresh: () => void; initialDoctorID?: string; onTargetHandled?: () => void; onTargetBack?: () => void }) {
-  const [query, setQuery] = useState("");
   const [doctors, setDoctors] = useState<User[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<User | null>(null);
   const [action, setAction] = useState<"profile" | "consultation" | "appointment">("profile");
@@ -864,20 +863,20 @@ function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled, onTa
   const [personalConsent, setPersonalConsent] = useState(false);
   const [medicalConsent, setMedicalConsent] = useState(false);
   const [pendingRequest, setPendingRequest] = useState<{ serviceType: "consultation" | "appointment" | "home_visit"; at?: string } | null>(null);
-  const [openedFromHome, setOpenedFromHome] = useState(false);
 
   useEffect(() => {
-    if (user.role === "patient") api.doctors(query).then(setDoctors).catch(() => setDoctors([]));
-  }, [query, user.role]);
+    if (user.role === "patient") api.doctors("").then(setDoctors).catch(() => setDoctors([]));
+  }, [user.role]);
   useEffect(() => {
-    if (!initialDoctorID) return;
-    const doctor = doctors.find((item) => item.id === initialDoctorID);
+    if (!doctors.length || selectedDoctor) return;
+    const doctor = doctors.find((item) => item.id === initialDoctorID)
+      || doctors.find((item) => /марат/i.test(item.full_name))
+      || doctors[0];
     if (!doctor) return;
     setSelectedDoctor(doctor);
     setAction("profile");
-    setOpenedFromHome(true);
-    onTargetHandled?.();
-  }, [initialDoctorID, doctors, onTargetHandled]);
+    if (initialDoctorID) onTargetHandled?.();
+  }, [initialDoctorID, doctors, onTargetHandled, selectedDoctor]);
   useEffect(() => {
     if (!selectedDoctor || action !== "appointment") return;
     const from = new Date();
@@ -906,7 +905,6 @@ function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled, onTa
     setBusy(true);
     try {
       await api.requestDoctor({ doctorID: selectedDoctor.id, question, serviceType, appointmentAt: at, personalDataConsent: personalConsent, medicalDataConsent: medicalConsent });
-      setSelectedDoctor(null);
       setPendingRequest(null);
       setPersonalConsent(false);
       setMedicalConsent(false);
@@ -918,18 +916,11 @@ function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled, onTa
       setBusy(false);
     }
   }
-  function close() { setSelectedDoctor(null); setAction("profile"); setPendingRequest(null); setPersonalConsent(false); setMedicalConsent(false); if (openedFromHome) { setOpenedFromHome(false); onTargetBack?.(); } }
+  function close() { setSelectedDoctor(null); setAction("profile"); setPendingRequest(null); setPersonalConsent(false); setMedicalConsent(false); onTargetBack?.(); }
   if (user.role === "doctor") return <ScrollView contentContainerStyle={s.scroll}><Empty icon="medical-outline" title="Каталог коллег" text="Раздел готовится." /></ScrollView>;
 
   return <>
-    <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
-      <View style={s.doctorSearch}><Ionicons name="search" size={21} color={colors.muted}/><TextInput style={s.doctorSearchInput} placeholder="Терапевт, кардиолог…" value={query} onChangeText={setQuery}/></View>
-      <View style={s.doctorGrid}>{doctors.map((doctor) =>
-        <Pressable key={doctor.id} accessibilityRole="button" accessibilityLabel={`Открыть врача ${doctor.full_name}`} onPress={() => { setSelectedDoctor(doctor); setAction("profile"); }} style={({ pressed }) => [s.doctorDirectoryCard, pressed && s.pressablePressed]}>
-          <AvatarView user={doctor} size={48}/><View style={{ flex: 1, minWidth: 0 }}><Text numberOfLines={1} style={s.doctorDirectoryName}>{doctor.full_name}</Text><Text style={s.specialtyLine}>{doctor.specialization}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/>
-        </Pressable>)}</View>
-      {!doctors.length && <Empty icon="medkit-outline" title="Специалисты не найдены" text="Попробуйте другую специальность."/>}
-    </ScrollView>
+    <View style={s.directBookingLoader}>{doctors.length ? null : <ActivityIndicator color={colors.brand}/>}</View>
     <Modal visible={!!selectedDoctor} animationType="slide" onRequestClose={close}>
       <SafeAreaView style={s.fullScreenModal}>
         {pendingRequest && <View style={s.consentWarning}>
@@ -2910,9 +2901,9 @@ const s = StyleSheet.create({
   chatComposer: { minHeight: 76, padding: 10, flexDirection: "row", alignItems: "flex-end", gap: 8, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.line },
   chatInput: { flex: 1, minWidth: 0, maxHeight: 120, minHeight: 48, borderRadius: 17, backgroundColor: colors.paper, paddingHorizontal: 15, paddingVertical: 12, color: colors.ink, fontSize: 16, lineHeight: 21 },
   sendButton: { width: 48, height: 48, borderRadius: 17, backgroundColor: colors.violet, alignItems: "center", justifyContent: "center" },
-  supportPage: { flex: 1, minHeight: 0, backgroundColor: colors.white },
+  supportPage: { flex: 1, minHeight: 0, backgroundColor: colors.paper },
   supportPageCompact: { paddingBottom: 106 },
-  supportHeader: { minHeight: 74, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.white },
+  supportHeader: { minHeight: 74, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.paper },
   supportHeaderButton: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   supportTitle: { flex: 1, color: colors.ink, fontSize: 20, fontWeight: "900" },
   supportSearch: { marginHorizontal: 16, marginBottom: 8, minHeight: 48, paddingHorizontal: 14, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.paper },
@@ -2928,10 +2919,11 @@ const s = StyleSheet.create({
   supportTopics: { flexDirection: "row", gap: 12, marginTop: 22 },
   supportTopic: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#EFF6F6" },
   supportLogoutText: { color: colors.muted, fontSize: 12, fontWeight: "700", marginTop: 22 },
-  supportComposer: { minHeight: 76, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "flex-end", gap: 8, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: "#F0F2F2" },
+  supportComposer: { minHeight: 76, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "flex-end", gap: 8, backgroundColor: colors.paper, borderTopWidth: 1, borderTopColor: colors.line },
   supportComposerIcon: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F6F6" },
   supportInput: { borderWidth: 1.5, borderColor: "#BAC7C8", backgroundColor: colors.white },
   supportSendDisabled: { opacity: 0, width: 0, marginLeft: -8 },
+  directBookingLoader: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.paper },
   pdfViewerPage: { flex: 1, backgroundColor: colors.paper },
   nativePdfReturn: { flex: 1, padding: 28, alignItems: "center", justifyContent: "center", gap: 16 },
   guidePublished: { color: colors.aqua, fontSize: 10, fontWeight: "800", marginTop: 5 },

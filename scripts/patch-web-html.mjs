@@ -14,10 +14,10 @@ const startupFiles = [
   "startup-414x736@3x.png", "startup-414x896@2x.png", "startup-414x896@3x.png",
   "startup-428x926@3x.png", "startup-430x932@3x.png", "startup-440x956@3x.png",
 ];
-for (const filename of ["lab-icon-512.png", ...startupFiles]) {
+for (const filename of ["lab-icon-v2-512.png", ...startupFiles]) {
   copyFileSync(resolve(assets, filename), resolve(dist, filename));
 }
-copyFileSync(resolve(assets, "lab-icon-512.png"), resolve(dist, "apple-touch-icon.png"));
+copyFileSync(resolve(assets, "lab-icon-v2-512.png"), resolve(dist, "apple-touch-icon.png"));
 writeFileSync(resolve(dist, "manifest.webmanifest"), JSON.stringify({
   name: "Lab HEALTH",
   short_name: "Lab",
@@ -29,7 +29,7 @@ writeFileSync(resolve(dist, "manifest.webmanifest"), JSON.stringify({
   orientation: "portrait",
   background_color: "#146E78",
   theme_color: "#17214B",
-  icons: [{ src: "/lab-icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" }],
+  icons: [{ src: "/lab-icon-v2-512.png", sizes: "512x512", type: "image/png", purpose: "any" }],
 }, null, 2));
 
 let html = readFileSync(indexPath, "utf8");
@@ -41,7 +41,7 @@ html = html.replace(
 
 const appleMeta = [
   `    <link rel="manifest" href="/manifest.webmanifest?v=${version}" />`,
-  `    <link rel="icon" type="image/png" sizes="512x512" href="/lab-icon-512.png?v=${version}" />`,
+  `    <link rel="icon" type="image/png" sizes="512x512" href="/lab-icon-v2-512.png?v=${version}" />`,
   `    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=${version}" />`,
   `    <link rel="apple-touch-startup-image" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)" href="/startup-320x568@2x.png?v=${version}" />`,
   `    <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" href="/startup-375x667@2x.png?v=${version}" />`,
