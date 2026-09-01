@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.1";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.2";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
@@ -371,7 +371,7 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
         {backdrop}
         {phase === "welcome" && <View style={s.authWelcome}>
           <View style={s.authWelcomeCopy}><Text style={s.authWelcomeTitle}>{rememberedName ? `Здравствуйте, ${rememberedName}` : "Добро пожаловать"}</Text><Text style={s.authWelcomeSlogan}>{remembered ? "Ваше здоровье под контролем" : "Все результаты здоровья — в одном месте"}</Text></View>
-          <View style={s.authWelcomeActions}>{remembered ? <Button label="Войти" icon="arrow-forward" onPress={()=>{setPhase("pin");setForm(current=>({...current,pin:""}));}}/> : <><Button label="Зарегистрироваться" icon="person-add-outline" onPress={()=>{setRegisterStep("profile");setPhase("register");}}/><Pressable accessibilityRole="button" style={s.authSecondaryButton} onPress={()=>setPhase("about")}><Text style={s.authSecondaryText}>О приложении</Text></Pressable><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>{setForm(current=>({...current,email:"marat",pin:""}));setRememberedName("Марат");setPhase("pin");}}><Text style={s.authExistingText}>Вход для врача</Text></Pressable></>}</View>
+          <View style={s.authWelcomeActions}>{remembered ? <Pressable accessibilityRole="button" style={({pressed})=>[s.authLoginGlass,pressed&&{transform:[{scale:.98}],opacity:.78}]} onPress={()=>{setPhase("pin");setForm(current=>({...current,pin:""}));}}><Text style={s.authLoginGlassText}>Войти</Text></Pressable> : <><Button label="Зарегистрироваться" icon="person-add-outline" onPress={()=>{setRegisterStep("profile");setPhase("register");}}/><Pressable accessibilityRole="button" style={s.authSecondaryButton} onPress={()=>setPhase("about")}><Text style={s.authSecondaryText}>О приложении</Text></Pressable><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>{setForm(current=>({...current,email:"marat",pin:""}));setRememberedName("Марат");setPhase("pin");}}><Text style={s.authExistingText}>Вход для врача</Text></Pressable></>}</View>
         </View>}
         {phase === "pin" && <View style={s.authPINScreen}>
           <PinPad value={form.pin} dark onChange={changePIN} loginMode onLogout={forget}/>
@@ -1542,12 +1542,28 @@ function Sidebar({
 }
 function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) => void }) {
   const insets = useSafeAreaInsets();
+  const tabs = tabsFor(role);
+  const activeIndex = Math.max(0, tabs.indexOf(tab));
+  const [navWidth, setNavWidth] = useState(0);
+  const dropX = useRef(new Animated.Value(0)).current;
+  const itemWidth = navWidth > 0 ? (navWidth - 14 - 2 * (tabs.length - 1)) / tabs.length : 0;
+  useEffect(() => {
+    if (!navWidth) return;
+    Animated.spring(dropX, {
+      toValue: activeIndex * (itemWidth + 2),
+      damping: 15,
+      stiffness: 230,
+      mass: 0.72,
+      useNativeDriver: true,
+    }).start();
+  }, [activeIndex, dropX, itemWidth, navWidth]);
   const dockInsets = Platform.OS === "web"
-    ? ({ bottom: "calc(8px + env(safe-area-inset-bottom, 0px))", height: 66 } as any)
-    : { bottom: 8 + insets.bottom, height: 66 };
+    ? ({ bottom: "calc(env(safe-area-inset-bottom, 0px) + 6px)", height: 66 } as any)
+    : { bottom: Math.max(14, insets.bottom + 6), height: 66 };
   return (
-    <View testID="bottom-nav" style={[s.bottom, dockInsets]}>
-      {tabsFor(role).map((t) => (
+    <View nativeID="mobile-navigation" testID="bottom-nav" style={[s.bottom, dockInsets]} onLayout={(event)=>setNavWidth(event.nativeEvent.layout.width)}>
+      {navWidth > 0 && <Animated.View pointerEvents="none" style={[s.bottomDrop,{width:Math.max(0,itemWidth),transform:[{translateX:dropX}]}]}/>}
+      {tabs.map((t) => (
         <Pressable
           key={t}
           accessibilityRole="button"
@@ -1926,6 +1942,7 @@ const s = StyleSheet.create({
     bottom: 8,
     zIndex: 100,
     height: 66,
+    overflow: "hidden",
     flexDirection: "row",
     borderTopLeftRadius: 25,
     borderTopRightRadius: 25,
@@ -1934,17 +1951,43 @@ const s = StyleSheet.create({
     paddingHorizontal: 7,
     paddingTop: 3,
     gap: 2,
-    backgroundColor: "#FFFFFFFA",
+    backgroundColor: "rgba(245,249,251,0.70)",
     borderWidth: 1,
-    borderColor: "#E4E7F0",
-    shadowColor: "#17214B",
-    shadowOpacity: .14,
+    borderColor: "rgba(255,255,255,0.78)",
+    shadowColor: "#315F73",
+    shadowOpacity: .13,
     shadowRadius: 16,
     shadowOffset: {width:0,height:7},
     elevation: 10,
+    ...(Platform.OS === "web" ? {
+      backdropFilter: "blur(18px) saturate(1.35)",
+      WebkitBackdropFilter: "blur(18px) saturate(1.35)",
+      boxShadow: "0 7px 24px rgba(24,61,78,0.13), inset 0 1px 0 rgba(255,255,255,0.78)",
+    } : {}),
+  },
+  bottomDrop: {
+    position: "absolute",
+    left: 7,
+    top: 3,
+    bottom: 3,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.88)",
+    backgroundColor: "rgba(255,255,255,0.22)",
+    shadowColor: "#2E667D",
+    shadowOffset: {width:0,height:5},
+    shadowOpacity: .18,
+    shadowRadius: 10,
+    elevation: 5,
+    ...(Platform.OS === "web" ? {
+      backdropFilter: "blur(14px) saturate(1.8) contrast(1.06)",
+      WebkitBackdropFilter: "blur(14px) saturate(1.8) contrast(1.06)",
+      boxShadow: "0 4px 15px rgba(22,67,88,0.16), inset 0 1px 0 rgba(255,255,255,0.90)",
+    } : {}),
   },
   bottomItem: {
     flex: 1,
+    zIndex: 2,
     height: 62,
     alignItems: "center",
     justifyContent: "center",
@@ -1952,7 +1995,7 @@ const s = StyleSheet.create({
   },
   bottomItemActive: { backgroundColor: "transparent" },
   bottomIcon: { minWidth: 42, height: 31, paddingHorizontal: 10, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  bottomIconActive: { backgroundColor: colors.mint },
+  bottomIconActive: { backgroundColor: "transparent", transform: [{scale:1.04}] },
   bottomText: { fontSize: 10, lineHeight: 14, fontWeight: "700", color: colors.muted },
   bottomTextActive: { color: colors.brand },
   scroll: {
@@ -2120,6 +2163,8 @@ const s = StyleSheet.create({
   authWelcomeTitle: { color: colors.white, fontSize: 34, lineHeight: 40, fontWeight: "900", letterSpacing: -1 },
   authWelcomeSlogan: { color: "#D7E7EA", fontSize: 19, lineHeight: 27, fontWeight: "600", maxWidth: 420 },
   authWelcomeActions: { width: "100%", maxWidth: 430, alignSelf: "center", gap: 10 },
+  authLoginGlass: { minHeight: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF10", borderWidth: 1, borderColor: "#FFFFFF24", ...(Platform.OS === "web" ? { backdropFilter: "blur(16px) saturate(1.25)", WebkitBackdropFilter: "blur(16px) saturate(1.25)", boxShadow: "inset 0 1px 0 rgba(255,255,255,.18), 0 8px 26px rgba(10,20,55,.10)" } : {}) },
+  authLoginGlassText: { color: colors.white, fontSize: 18, lineHeight: 23, fontWeight: "800", letterSpacing: .2 },
   authSecondaryButton: { minHeight: 52, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF18", borderWidth: 1, borderColor: "#FFFFFF28" },
   authSecondaryText: { color: colors.white, fontSize: 15, fontWeight: "800" },
   authExistingButton: { minHeight: 42, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
