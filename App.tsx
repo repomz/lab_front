@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.0";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.1";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
@@ -279,23 +279,45 @@ function AppContent() {
   );
 }
 
+function formatBirthDate(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean).join(".");
+}
+
+function ageFromBirthDate(value: string) {
+  const match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(value);
+  if (!match) return 0;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const birth = new Date(year, month - 1, day);
+  if (birth.getFullYear() !== year || birth.getMonth() !== month - 1 || birth.getDate() !== day || birth > new Date()) return 0;
+  const now = new Date();
+  let age = now.getFullYear() - year;
+  if (now.getMonth() < month - 1 || (now.getMonth() === month - 1 && now.getDate() < day)) age--;
+  return age >= 0 && age <= 120 ? age : 0;
+}
+
 function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
-  const [remembered, setRemembered] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "");
+  const [remembered] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "");
   const [rememberedName, setRememberedName] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_NAME_KEY) || "" : "");
-  const [phase, setPhase] = useState<"welcome" | "pin" | "identify" | "register" | "about">("welcome");
+  const [phase, setPhase] = useState<"welcome" | "pin" | "register" | "about">("welcome");
+  const [registerStep, setRegisterStep] = useState<"profile" | "pin">("profile");
   const [form, setForm] = useState({
     email: Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "",
     pin: "",
     fullName: "",
     specialization: "",
     licenseNumber: "",
-    age: "",
+    birthDate: "",
     heightCM: "",
     weightKG: "",
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const registrationReady = !!form.email.trim() && /^\d{4}$/.test(form.pin) && Number(form.age) > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0;
+  const age = ageFromBirthDate(form.birthDate);
+  const profileReady = age > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0;
+  const registrationReady = /^\d{4}$/.test(form.pin) && age > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0;
   function remember(user: User) {
     if (Platform.OS !== "web" || typeof localStorage === "undefined") return;
     localStorage.setItem(LAST_LOGIN_KEY, user.email);
@@ -319,14 +341,15 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   function changePIN(pin: string) {
     setForm((current) => ({ ...current, pin }));
     setError("");
-    if ((phase === "pin" || phase === "identify") && pin.length === 4) setTimeout(() => void login(pin), 0);
+    if (phase === "pin" && pin.length === 4) setTimeout(() => void login(pin), 0);
   }
   async function register() {
     if (!registrationReady || busy) return;
     setBusy(true);
     setError("");
     try {
-      const r = await api.register({ ...form, role: "patient", age: Number(form.age), heightCM: Number(form.heightCM), weightKG: Number(form.weightKG) });
+      const internalLogin = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const r = await api.register({ ...form, email: internalLogin, role: "patient", age, heightCM: Number(form.heightCM), weightKG: Number(form.weightKG) });
       remember(r.user);
       onDone(r.user, r.token);
     } catch (e) {
@@ -336,15 +359,9 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
     }
   }
   function forget() {
-    setRemembered("");
-    setRememberedName("");
-    setForm((current) => ({ ...current, email: "", pin: "" }));
+    setForm((current) => ({ ...current, pin: "" }));
     setPhase("welcome");
     setError("");
-    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
-      localStorage.removeItem(LAST_LOGIN_KEY);
-      localStorage.removeItem(LAST_NAME_KEY);
-    }
   }
   const backdrop = <><View style={s.authOrbOne}/><View style={s.authOrbTwo}/><View style={[s.authLabSheet,s.authLabSheetOne]}><Ionicons name="document-text-outline" size={25} color="#B9C6FF"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:46}]}/><View style={[s.authLabLine,{width:30}]}/></View></View><View style={[s.authLabSheet,s.authLabSheetTwo]}><Ionicons name="flask-outline" size={25} color="#7DE0D5"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:38}]}/></View></View></>;
   return (
@@ -354,27 +371,26 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
         {backdrop}
         {phase === "welcome" && <View style={s.authWelcome}>
           <View style={s.authWelcomeCopy}><Text style={s.authWelcomeTitle}>{rememberedName ? `Здравствуйте, ${rememberedName}` : "Добро пожаловать"}</Text><Text style={s.authWelcomeSlogan}>{remembered ? "Ваше здоровье под контролем" : "Все результаты здоровья — в одном месте"}</Text></View>
-          <View style={s.authWelcomeActions}>{remembered ? <Button label="Войти" icon="arrow-forward" onPress={()=>{setPhase("pin");setForm(current=>({...current,pin:""}));}}/> : <><Button label="Зарегистрироваться" icon="person-add-outline" onPress={()=>setPhase("register")}/><Pressable accessibilityRole="button" style={s.authSecondaryButton} onPress={()=>setPhase("about")}><Text style={s.authSecondaryText}>О приложении</Text></Pressable><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>setPhase("identify")}><Text style={s.authExistingText}>Уже есть аккаунт</Text></Pressable></>}</View>
+          <View style={s.authWelcomeActions}>{remembered ? <Button label="Войти" icon="arrow-forward" onPress={()=>{setPhase("pin");setForm(current=>({...current,pin:""}));}}/> : <><Button label="Зарегистрироваться" icon="person-add-outline" onPress={()=>{setRegisterStep("profile");setPhase("register");}}/><Pressable accessibilityRole="button" style={s.authSecondaryButton} onPress={()=>setPhase("about")}><Text style={s.authSecondaryText}>О приложении</Text></Pressable><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>{setForm(current=>({...current,email:"marat",pin:""}));setRememberedName("Марат");setPhase("pin");}}><Text style={s.authExistingText}>Вход для врача</Text></Pressable></>}</View>
         </View>}
-        {(phase === "pin" || phase === "identify") && <View style={s.authPINScreen}>
-          {phase === "identify" && <View style={s.authLoginField}><Field label="Логин" dark autoCapitalize="none" value={form.email} onChangeText={(email:string)=>setForm(current=>({...current,email,pin:""}))}/></View>}
+        {phase === "pin" && <View style={s.authPINScreen}>
           <PinPad value={form.pin} dark onChange={changePIN} loginMode onLogout={forget}/>
           {busy&&<ActivityIndicator color={colors.white}/>} {error?<Text style={s.authPINError}>{error}</Text>:null}
-          {phase === "identify"&&<Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>setPhase("welcome")}><Text style={s.authExistingText}>Назад</Text></Pressable>}
         </View>}
         {phase === "about" && <View style={s.authAbout}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Lab HEALTH</Text><Text style={s.authAboutText}>Собирает лабораторные исследования в одном месте, выделяет показатели и помогает следить за их динамикой. Автоматическая оценка не заменяет врача.</Text></View>}
-        {phase === "register" && <ScrollView style={s.authRegisterScroll} contentContainerStyle={s.authRegisterBody} keyboardShouldPersistTaps="handled"><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Регистрация</Text><Text style={s.authRegisterHint}>Создайте профиль пользователя</Text><Field label="Имя" dark value={form.fullName} onChangeText={(fullName:string)=>setForm(current=>({...current,fullName}))}/><View style={s.registrationVitals}><Field label="Возраст" dark keyboardType="number-pad" value={form.age} onChangeText={(age:string)=>setForm(current=>({...current,age}))}/><Field label="Рост, см" dark keyboardType="decimal-pad" value={form.heightCM} onChangeText={(heightCM:string)=>setForm(current=>({...current,heightCM}))}/><Field label="Вес, кг" dark keyboardType="decimal-pad" value={form.weightKG} onChangeText={(weightKG:string)=>setForm(current=>({...current,weightKG}))}/></View><Field label="Логин" dark autoCapitalize="none" value={form.email} onChangeText={(email:string)=>setForm(current=>({...current,email}))}/><PinPad value={form.pin} dark onChange={changePIN}/>{error?<Text style={s.authPINError}>{error}</Text>:null}<Button label={busy?"Создаём…":"Зарегистрироваться"} disabled={!registrationReady||busy} onPress={()=>void register()}/><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>{setPhase("identify");setForm(current=>({...current,pin:""}));}}><Text style={s.authExistingText}>Уже есть аккаунт</Text></Pressable></ScrollView>}
+        {phase === "register" && registerStep === "profile" && <ScrollView style={s.authRegisterScroll} contentContainerStyle={s.authRegisterBody} keyboardShouldPersistTaps="handled"><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Регистрация</Text><Text style={s.authRegisterHint}>Создайте профиль пользователя</Text><Field label="Имя" dark value={form.fullName} onChangeText={(fullName:string)=>setForm(current=>({...current,fullName}))}/><Field label="Дата рождения" dark keyboardType="number-pad" placeholder="ДД.ММ.ГГГГ" maxLength={10} value={form.birthDate} onChangeText={(birthDate:string)=>setForm(current=>({...current,birthDate:formatBirthDate(birthDate)}))}/><View style={s.registrationVitals}><Field label="Рост, см" dark keyboardType="decimal-pad" value={form.heightCM} onChangeText={(heightCM:string)=>setForm(current=>({...current,heightCM}))}/><Field label="Вес, кг" dark keyboardType="decimal-pad" value={form.weightKG} onChangeText={(weightKG:string)=>setForm(current=>({...current,weightKG}))}/></View><Button label="Продолжить" icon="arrow-forward" disabled={!profileReady} onPress={()=>setRegisterStep("pin")}/></ScrollView>}
+        {phase === "register" && registerStep === "pin" && <View style={s.authRegisterPIN}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setRegisterStep("profile")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><View><Text style={s.authWelcomeTitle}>Создайте PIN</Text><Text style={s.authRegisterHint}>Четыре цифры для быстрого входа</Text></View><PinPad value={form.pin} dark reveal onChange={changePIN}/>{error?<Text style={s.authPINError}>{error}</Text>:null}<Button label={busy?"Создаём…":"Зарегистрироваться"} disabled={!registrationReady||busy} onPress={()=>void register()}/></View>}
         <Text style={s.authVersionCompact}>LAB HEALTH · v{APP_VERSION}</Text>
       </SafeAreaView>
     </LinearGradient>
   );
 }
 
-function PinPad({ value, onChange, dark, loginMode=false, onLogout }: { value: string; onChange: (value: string) => void; dark?: boolean; loginMode?: boolean; onLogout?:()=>void }) {
-  const keys: Array<number | "logout" | "face" | "back"> = [1,2,3,4,5,6,7,8,9,loginMode?"logout":"back",0,"face"];
+function PinPad({ value, onChange, dark, loginMode=false, reveal=false, onLogout }: { value: string; onChange: (value: string) => void; dark?: boolean; loginMode?: boolean; reveal?: boolean; onLogout?:()=>void }) {
+  const keys: Array<number | "logout" | "face" | "empty"> = [1,2,3,4,5,6,7,8,9,loginMode?"logout":"empty",0,"face"];
   return <View style={s.pinBlock}>
-    <Pressable accessibilityRole="button" accessibilityLabel="Удалить последнюю цифру" onPress={()=>onChange(value.slice(0,-1))} style={s.pinDotsRow}><View accessibilityLabel={`Введено цифр: ${value.length}`} style={s.pinDots}>{[0,1,2,3].map((index)=><View key={index} style={[s.pinDot,dark&&s.pinDotOnDark,index<value.length&&s.pinDotFilled]}/>)}</View>{value.length>0&&<Ionicons name="backspace-outline" size={21} color="#FFFFFFB5"/>}</Pressable>
-    <View style={s.pinGrid}>{keys.map((key,index)=>{const disabled=key==="face";const label=key==="logout"?"Выйти":key==="face"?"Face ID":key==="back"?"Удалить":String(key);return <Pressable key={`${key}-${index}`} disabled={disabled} accessibilityRole="button" accessibilityLabel={label} style={({pressed})=>[s.pinKey,dark&&typeof key==="number"&&s.pinKeyOnDark,typeof key!=="number"&&s.pinUtility,disabled&&s.pinUtilityDisabled,pressed&&{opacity:.55}]} onPress={()=>key==="logout"?onLogout?.():key==="back"?onChange(value.slice(0,-1)):typeof key==="number"&&value.length<4&&onChange(`${value}${key}`)}>{typeof key==="number"?<Text style={[s.pinKeyText,dark&&{color:colors.white}]}>{key}</Text>:key==="face"?<><Ionicons name="scan-outline" size={23} color="#FFFFFF64"/><Text style={s.pinUtilityTextDisabled}>Face ID</Text></>:key==="logout"?<Text style={s.pinUtilityText}>Выйти</Text>:<Ionicons name="backspace-outline" size={24} color="#FFFFFFB5"/>}</Pressable>})}</View>
+    {reveal ? <View style={s.pinRevealRow}><View accessibilityLabel={`PIN: ${value}`} style={s.pinDigits}>{[0,1,2,3].map(index=><Text key={index} style={s.pinDigit}>{value[index]||"—"}</Text>)}</View><Pressable accessibilityRole="button" accessibilityLabel="Стереть последнюю цифру" onPress={()=>onChange(value.slice(0,-1))} style={s.pinEraseButton}><Ionicons name="backspace-outline" size={31} color={colors.white}/></Pressable></View> : <Pressable accessibilityRole="button" accessibilityLabel="Удалить последнюю цифру" onPress={()=>onChange(value.slice(0,-1))} style={s.pinDotsRow}><View accessibilityLabel={`Введено цифр: ${value.length}`} style={s.pinDots}>{[0,1,2,3].map((index)=><View key={index} style={[s.pinDot,dark&&s.pinDotOnDark,index<value.length&&s.pinDotFilled]}/>)}</View>{value.length>0&&<Ionicons name="backspace-outline" size={21} color="#FFFFFFB5"/>}</Pressable>}
+    <View style={s.pinGrid}>{keys.map((key,index)=>{const disabled=key==="face"||key==="empty";const label=key==="logout"?"Выйти":key==="face"?"Face ID":key==="empty"?"":String(key);return <Pressable key={`${key}-${index}`} disabled={disabled} accessibilityRole="button" accessibilityLabel={label} style={({pressed})=>[s.pinKey,dark&&typeof key==="number"&&s.pinKeyOnDark,typeof key!=="number"&&s.pinUtility,disabled&&s.pinUtilityDisabled,pressed&&{opacity:.55}]} onPress={()=>key==="logout"?onLogout?.():typeof key==="number"&&value.length<4&&onChange(`${value}${key}`)}>{typeof key==="number"?<Text style={[s.pinKeyText,dark&&{color:colors.white}]}>{key}</Text>:key==="face"?<><Ionicons name="scan-outline" size={23} color="#FFFFFF64"/><Text style={s.pinUtilityTextDisabled}>Face ID</Text></>:key==="logout"?<Text style={s.pinUtilityText}>Выйти</Text>:null}</Pressable>})}</View>
   </View>;
 }
 
@@ -2116,6 +2132,7 @@ const s = StyleSheet.create({
   authBack: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF14" },
   authRegisterScroll: { flex: 1, width: "100%" },
   authRegisterBody: { width: "100%", maxWidth: 540, alignSelf: "center", paddingHorizontal: 20, paddingTop: 18, paddingBottom: 74, gap: 5 },
+  authRegisterPIN: { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center", justifyContent: "center", paddingHorizontal: 20, paddingBottom: 22, gap: 13 },
   authRegisterHint: { color: "#D7E7EA", fontSize: 14, marginTop: 2, marginBottom: 18 },
   authOuterCompact: { backgroundColor: "#17214B" },
   authPage: { flex: 1, width: "100%", flexDirection: "row", backgroundColor: colors.paper },
@@ -2328,13 +2345,17 @@ const s = StyleSheet.create({
   pinBlock: { width: "100%", marginBottom: 12 },
   pinDotsRow: { width: "100%", minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, marginBottom: 13 },
   pinDots: { height: 34, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 19 },
+  pinRevealRow: { width: "100%", maxWidth: 380, minHeight: 64, alignSelf: "center", alignItems: "center", justifyContent: "center", marginBottom: 13 },
+  pinDigits: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 20 },
+  pinDigit: { width: 29, color: colors.white, fontSize: 30, lineHeight: 37, fontWeight: "800", textAlign: "center" },
+  pinEraseButton: { position: "absolute", right: -2, width: 54, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF16", borderWidth: 1, borderColor: "#FFFFFF24" },
   pinDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: colors.muted, backgroundColor: "transparent" },
   pinDotOnDark: { borderColor: "#FFFFFF78" },
   pinDotFilled: { borderColor: colors.aqua, backgroundColor: colors.aqua },
   pinGrid: { width: "100%", maxWidth: 380, alignSelf: "center", flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 10 },
-  pinKey: { width: "31%", height: 64, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  pinKey: { width: "31%", height: 68, borderRadius: 23, alignItems: "center", justifyContent: "center" },
   pinKeyOnDark: { backgroundColor: "#FFFFFF10", borderWidth: 1, borderColor: "#FFFFFF17" },
-  pinKeyText: { color: colors.ink, fontSize: 27, lineHeight: 33, fontWeight: "600" },
+  pinKeyText: { color: colors.ink, fontSize: 30, lineHeight: 36, fontWeight: "600" },
   pinUtility: { gap: 3, backgroundColor: "transparent" },
   pinUtilityDisabled: { opacity: .72 },
   pinUtilityText: { color: "#E1E9F6", fontSize: 12, fontWeight: "800" },
