@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.3";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.4";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];

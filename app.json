@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lab",
     "slug": "lab-health",
-    "version": "0.9.3",
+    "version": "0.9.4",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
