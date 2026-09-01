@@ -31,7 +31,7 @@ import { colors, shadow } from "./src/theme";
 
 type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.2";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.3";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
@@ -55,7 +55,7 @@ function Modal(props: React.ComponentProps<typeof NativeModal>) {
   if (Platform.OS === "web") return <View style={s.webModalRoot}>{props.children}</View>;
   return <NativeModal {...props} />;
 }
-function SystemChrome({ dark, background }: { dark: boolean; background: string }) {
+function SystemChrome({ dark, background, canvas = background }: { dark: boolean; background: string; canvas?: string }) {
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
     const ensureMeta = (name: string, content: string) => {
@@ -72,9 +72,9 @@ function SystemChrome({ dark, background }: { dark: boolean; background: string 
     ensureMeta("theme-color", background);
     ensureMeta("apple-mobile-web-app-capable", "yes");
     ensureMeta("apple-mobile-web-app-status-bar-style", "black-translucent");
-    document.documentElement.style.backgroundColor = background;
-    document.body.style.backgroundColor = background;
-  }, [background]);
+    document.documentElement.style.background = canvas;
+    document.body.style.background = canvas;
+  }, [background, canvas]);
   return <StatusBar style={dark ? "light" : "dark"} translucent backgroundColor="transparent" />;
 }
 const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
@@ -119,6 +119,15 @@ function AppContent() {
   const { width } = useWindowDimensions();
   const desktop = width >= 960;
   const compact = width < 640;
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const root = document.getElementById("root");
+    const viewport = document.querySelector('meta[name="viewport"]') as HTMLMetaElement | null;
+    if (viewport) viewport.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
+    Object.assign(document.documentElement.style, { width: "100%", height: "100%", overflow: "hidden", overscrollBehavior: "none" });
+    Object.assign(document.body.style, { width: "100%", height: "100%", margin: "0", overflow: "hidden", position: "fixed", inset: "0", overscrollBehavior: "none" });
+    if (root) Object.assign(root.style, { width: "100%", height: "100%", overflow: "hidden" });
+  }, []);
   async function refresh(u = user) {
     if (!u) return;
     const [analysesResult, consultationsResult] = await Promise.allSettled([api.analyses(), api.consultations()]);
@@ -239,7 +248,7 @@ function AppContent() {
   const chromeBackground = immersiveHeader ? "#17214B" : screenBackground;
   return (
     <LinearGradient colors={chromeColors} start={{x:0,y:0}} end={{x:1,y:1}} style={s.safe}>
-      <SystemChrome dark={immersiveHeader} background={chromeBackground} />
+      <SystemChrome dark={immersiveHeader} background={chromeBackground} canvas={screenBackground} />
       <SafeAreaView edges={["top"]} style={s.safeInner}>
       <View style={s.shell}>
         {desktop && <Sidebar user={user} tab={tab} onTab={setTab} />}
@@ -299,7 +308,7 @@ function ageFromBirthDate(value: string) {
 }
 
 function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
-  const [remembered] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "");
+  const [remembered, setRemembered] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "");
   const [rememberedName, setRememberedName] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_NAME_KEY) || "" : "");
   const [phase, setPhase] = useState<"welcome" | "pin" | "register" | "about">("welcome");
   const [registerStep, setRegisterStep] = useState<"profile" | "pin">("profile");
@@ -363,15 +372,26 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
     setPhase("welcome");
     setError("");
   }
+  function switchUser() {
+    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
+      localStorage.removeItem(LAST_LOGIN_KEY);
+      localStorage.removeItem(LAST_NAME_KEY);
+    }
+    setRemembered("");
+    setRememberedName("");
+    setForm((current) => ({ ...current, email: "", pin: "" }));
+    setPhase("welcome");
+    setError("");
+  }
   const backdrop = <><View style={s.authOrbOne}/><View style={s.authOrbTwo}/><View style={[s.authLabSheet,s.authLabSheetOne]}><Ionicons name="document-text-outline" size={25} color="#B9C6FF"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:46}]}/><View style={[s.authLabLine,{width:30}]}/></View></View><View style={[s.authLabSheet,s.authLabSheetTwo]}><Ionicons name="flask-outline" size={25} color="#7DE0D5"/><View><View style={s.authLabLine}/><View style={[s.authLabLine,{width:38}]}/></View></View></>;
   return (
     <LinearGradient colors={["#17214B","#3D367A","#146E78"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.authOuter}>
-      <SystemChrome dark background="#17214B"/>
+      <SystemChrome dark background="#17214B" canvas="#146E78"/>
       <SafeAreaView edges={["top","right","bottom","left"]} style={s.authScreen}>
         {backdrop}
         {phase === "welcome" && <View style={s.authWelcome}>
           <View style={s.authWelcomeCopy}><Text style={s.authWelcomeTitle}>{rememberedName ? `Здравствуйте, ${rememberedName}` : "Добро пожаловать"}</Text><Text style={s.authWelcomeSlogan}>{remembered ? "Ваше здоровье под контролем" : "Все результаты здоровья — в одном месте"}</Text></View>
-          <View style={s.authWelcomeActions}>{remembered ? <Pressable accessibilityRole="button" style={({pressed})=>[s.authLoginGlass,pressed&&{transform:[{scale:.98}],opacity:.78}]} onPress={()=>{setPhase("pin");setForm(current=>({...current,pin:""}));}}><Text style={s.authLoginGlassText}>Войти</Text></Pressable> : <><Button label="Зарегистрироваться" icon="person-add-outline" onPress={()=>{setRegisterStep("profile");setPhase("register");}}/><Pressable accessibilityRole="button" style={s.authSecondaryButton} onPress={()=>setPhase("about")}><Text style={s.authSecondaryText}>О приложении</Text></Pressable><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>{setForm(current=>({...current,email:"marat",pin:""}));setRememberedName("Марат");setPhase("pin");}}><Text style={s.authExistingText}>Вход для врача</Text></Pressable></>}</View>
+          <View style={s.authWelcomeActions}>{remembered ? <><Pressable accessibilityRole="button" style={({pressed})=>[s.authLoginGlass,pressed&&{transform:[{scale:.98}],opacity:.7}]} onPress={()=>{setPhase("pin");setForm(current=>({...current,pin:""}));}}><Text style={s.authLoginGlassText}>Войти</Text></Pressable><Pressable accessibilityRole="button" style={({pressed})=>[s.authSwitchUser,pressed&&{opacity:.6}]} onPress={switchUser}><Text style={s.authSwitchUserText}>Сменить пользователя</Text></Pressable></> : <><Button label="Зарегистрироваться" icon="person-add-outline" onPress={()=>{setRegisterStep("profile");setPhase("register");}}/><Pressable accessibilityRole="button" style={s.authSecondaryButton} onPress={()=>setPhase("about")}><Text style={s.authSecondaryText}>О приложении</Text></Pressable><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>{setForm(current=>({...current,email:"marat",pin:""}));setRememberedName("Марат");setPhase("pin");}}><Text style={s.authExistingText}>Вход для врача</Text></Pressable></>}</View>
         </View>}
         {phase === "pin" && <View style={s.authPINScreen}>
           <PinPad value={form.pin} dark onChange={changePIN} loginMode onLogout={forget}/>
@@ -1822,7 +1842,7 @@ function Banner({ text, onClose }: { text: string; onClose: () => void }) {
 function Loading() {
   return (
     <LinearGradient colors={["#17214B","#3D367A","#146E78"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.loading}>
-      <SystemChrome dark background="#17214B"/>
+      <SystemChrome dark background="#17214B" canvas="#146E78"/>
       <View style={s.loadingOrb}/><Ionicons name="shield-checkmark-outline" size={58} color="#92E4DA"/><Text style={s.loadingTitle}>Ваше здоровье под контролем</Text><ActivityIndicator color="#C6F4EE"/>
     </LinearGradient>
   );
@@ -2163,8 +2183,10 @@ const s = StyleSheet.create({
   authWelcomeTitle: { color: colors.white, fontSize: 34, lineHeight: 40, fontWeight: "900", letterSpacing: -1 },
   authWelcomeSlogan: { color: "#D7E7EA", fontSize: 19, lineHeight: 27, fontWeight: "600", maxWidth: 420 },
   authWelcomeActions: { width: "100%", maxWidth: 430, alignSelf: "center", gap: 10 },
-  authLoginGlass: { minHeight: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF10", borderWidth: 1, borderColor: "#FFFFFF24", ...(Platform.OS === "web" ? { backdropFilter: "blur(16px) saturate(1.25)", WebkitBackdropFilter: "blur(16px) saturate(1.25)", boxShadow: "inset 0 1px 0 rgba(255,255,255,.18), 0 8px 26px rgba(10,20,55,.10)" } : {}) },
+  authLoginGlass: { minHeight: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF08", borderWidth: 1, borderColor: "#FFFFFF1C", ...(Platform.OS === "web" ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,.09)" } : {}) },
   authLoginGlassText: { color: colors.white, fontSize: 18, lineHeight: 23, fontWeight: "800", letterSpacing: .2 },
+  authSwitchUser: { minHeight: 42, marginTop: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  authSwitchUserText: { color: "#DCE8F2", fontSize: 14, lineHeight: 20, fontWeight: "700" },
   authSecondaryButton: { minHeight: 52, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF18", borderWidth: 1, borderColor: "#FFFFFF28" },
   authSecondaryText: { color: colors.white, fontSize: 15, fontWeight: "800" },
   authExistingButton: { minHeight: 42, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
