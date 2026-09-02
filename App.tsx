@@ -195,7 +195,7 @@ function AppContent() {
         await setToken("");
       } finally {
         await minimumSplash;
-        Animated.timing(splashOpacity, { toValue: 0, duration: 360, useNativeDriver: true }).start(() => setBoot(false));
+        Animated.timing(splashOpacity, { toValue: 0, duration: 360, useNativeDriver: Platform.OS !== "web" }).start(() => setBoot(false));
       }
     })();
   }, []);
@@ -373,7 +373,7 @@ function Auth({ portal, onDone }: { portal: Portal; onDone: (u: User, t: string)
   const profileReady = age > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0;
   const registrationReady = /^\d{4}$/.test(form.pin) && age > 0 && Number(form.heightCM) > 0 && Number(form.weightKG) > 0;
   useEffect(() => {
-    Animated.timing(entranceOpacity, { toValue: 1, duration: 460, useNativeDriver: true }).start();
+    Animated.timing(entranceOpacity, { toValue: 1, duration: 460, useNativeDriver: Platform.OS !== "web" }).start();
   }, [entranceOpacity]);
   function remember(user: User) {
     if (Platform.OS !== "web" || typeof localStorage === "undefined") return;
@@ -578,9 +578,9 @@ function WellnessPhotoCard({ ageBand, onPress }: { ageBand: AgeBand; onPress: ()
   const opacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     setIndex(0);
-    const rotate = () => Animated.timing(opacity, { toValue: 0, duration: 800, useNativeDriver: true }).start(() => {
+    const rotate = () => Animated.timing(opacity, { toValue: 0, duration: 800, useNativeDriver: Platform.OS !== "web" }).start(() => {
       setIndex((value) => (value + 1) % images.length);
-      Animated.timing(opacity, { toValue: 1, duration: 1100, useNativeDriver: true }).start();
+      Animated.timing(opacity, { toValue: 1, duration: 1100, useNativeDriver: Platform.OS !== "web" }).start();
     });
     let timer: ReturnType<typeof setTimeout>;
     const tick = () => { rotate(); timer = setTimeout(tick, 12000); };
@@ -614,9 +614,9 @@ function NutritionMediaCard({ ageTone, onPress }: { ageTone: "young" | "middle" 
   const [offset, setOffset] = useState(0);
   const opacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    const rotate = () => Animated.timing(opacity, { toValue: 0, duration: 800, useNativeDriver: true }).start(() => {
+    const rotate = () => Animated.timing(opacity, { toValue: 0, duration: 800, useNativeDriver: Platform.OS !== "web" }).start(() => {
       setOffset((value) => (value + 1) % 3);
-      Animated.timing(opacity, { toValue: 1, duration: 1100, useNativeDriver: true }).start();
+      Animated.timing(opacity, { toValue: 1, duration: 1100, useNativeDriver: Platform.OS !== "web" }).start();
     });
     let timer: ReturnType<typeof setTimeout>;
     const tick = () => { rotate(); timer = setTimeout(tick, 12000); };
