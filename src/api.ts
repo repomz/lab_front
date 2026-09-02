@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import { ActivitySurvey, AIChat, AIMessage, Analysis, ClinicalAssistResult, Consultation, Guide, GuideCatalog, NutritionSurvey, PatientNote, Role, ScheduleSlot, SupportMessage, User } from "./types";
+import { ActivitySurvey, AIChat, AIMessage, Analysis, ClinicalArticle, ClinicalAssistResult, Consultation, Guide, GuideCatalog, NutritionSurvey, PatientNote, Role, ScheduleSlot, SupportMessage, User } from "./types";
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:8080/api/v1";
@@ -134,6 +134,15 @@ export const api = {
   guides: () => request<GuideCatalog>("/guides"),
   guide: (id: string) => request<Guide>(`/guides/${encodeURIComponent(id)}`),
   syncGuides: () => request<GuideCatalog>("/guides/sync", { method: "POST" }),
+  articles: () => request<ClinicalArticle[]>("/articles"),
+  article: (id: string) => request<ClinicalArticle>(`/articles/${id}`),
+  createArticle: (value: Omit<ClinicalArticle,"id"|"doctor_id"|"created_at"|"updated_at">) => request<ClinicalArticle>("/articles", { method:"POST", body:JSON.stringify(value) }),
+  updateArticle: (id: string, value: Omit<ClinicalArticle,"id"|"doctor_id"|"created_at"|"updated_at">) => request<ClinicalArticle>(`/articles/${id}`, { method:"PATCH", body:JSON.stringify(value) }),
+  deleteArticle: (id: string) => request<void>(`/articles/${id}`, { method:"DELETE" }),
+  uploadArticleImage: async (asset: { uri: string; name: string; mimeType?: string; file?: Blob }) => {
+    const form=new FormData(); if(Platform.OS==="web"){let file=asset.file;if(!file)file=await(await fetch(asset.uri)).blob();form.append("file",file,asset.name)}else{form.append("file",{uri:asset.uri,name:asset.name,type:asset.mimeType||"image/jpeg"} as unknown as Blob)}
+    return request<{url:string}>("/articles/media",{method:"POST",body:form});
+  },
   fileURL: (id: string) =>
     `${API_URL}/analyses/${id}/file?access_token=${encodeURIComponent(token)}`,
   reportURL: (id: string) =>

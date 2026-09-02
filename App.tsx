@@ -27,13 +27,13 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { LinearGradient } from "expo-linear-gradient";
 import { api, API_URL, restoreToken, setToken } from "./src/api";
-import { ActivitySurvey, AIChat, Analysis, ClinicalAssistResult, Consultation, Guide, NutritionSurvey, PatientNote, Role, ScheduleSlot, SupportMessage, User } from "./src/types";
+import { ActivitySurvey, AIChat, Analysis, ArticleBlock, ClinicalArticle, ClinicalAssistResult, Consultation, Guide, NutritionSurvey, PatientNote, Role, ScheduleSlot, SupportMessage, User } from "./src/types";
 import { colors, shadow } from "./src/theme";
 
-type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "schedule" | "ai" | "guides" | "profile";
+type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "schedule" | "ai" | "guides" | "articles" | "profile";
 type Portal = "patient" | "doctor";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.7";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.8";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
 const PATIENT_LOGIN_KEY = "lab.patient-login";
@@ -90,6 +90,7 @@ const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   schedule: "time-outline",
   ai: "sparkles-outline",
   guides: "library-outline",
+  articles: "newspaper-outline",
   profile: "person-outline",
 };
 const labels: Record<Tab, string> = {
@@ -101,10 +102,11 @@ const labels: Record<Tab, string> = {
   schedule: "Время",
   ai: "AI",
   guides: "Guides",
+  articles: "Публикации",
   profile: "Профиль",
 };
 const tabsFor = (role: Role, desktop = false): Tab[] => role === "doctor"
-  ? ["home", "patients", "schedule", "ai", "guides", ...(desktop ? ["profile" as Tab] : [])]
+  ? ["home", "patients", "schedule", "ai", "guides", ...(desktop ? ["articles" as Tab,"profile" as Tab] : [])]
   : ["home", "analyses", "consultations", "doctors", "profile"];
 
 function portalFromLocation(): Portal {
@@ -140,9 +142,9 @@ function AppContent() {
     if (manifest) manifest.href = portal === "doctor" ? "/manifest-doctor.webmanifest" : "/manifest.webmanifest";
     const viewport = document.querySelector('meta[name="viewport"]') as HTMLMetaElement | null;
     if (viewport) viewport.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
-    Object.assign(document.documentElement.style, { width: "100%", height: "100dvh", minHeight: "100dvh", overflow: "hidden", overscrollBehavior: "none", background: colors.paper });
-    Object.assign(document.body.style, { width: "100%", height: "100dvh", minHeight: "100dvh", margin: "0", overflow: "hidden", overscrollBehavior: "none", background: colors.paper });
-    if (root) Object.assign(root.style, { width: "100%", height: "100dvh", minHeight: "100dvh", overflow: "hidden", background: colors.paper });
+    Object.assign(document.documentElement.style, { position: "fixed", inset: "0", width: "100%", height: "100%", overflow: "hidden", overscrollBehavior: "none", background: "#146E78" });
+    Object.assign(document.body.style, { position: "fixed", inset: "0", width: "100%", height: "100%", margin: "0", overflow: "hidden", overscrollBehavior: "none", background: "#146E78" });
+    if (root) Object.assign(root.style, { position: "absolute", inset: "0", width: "100%", height: "auto", minHeight: "0", overflow: "hidden", background: "#146E78" });
   }, []);
   async function refresh(u = user) {
     if (!u) return;
@@ -255,6 +257,8 @@ function AppContent() {
       <AIWorkspace />
     ) : tab === "guides" ? (
       <Guides />
+    ) : tab === "articles" ? (
+      <ArticleManager />
     ) : user.role === "patient" ? (
       <SupportChat compact={compact} onBack={() => setTab("home")} />
     ) : (
@@ -426,7 +430,7 @@ function Auth({ portal, onDone }: { portal: Portal; onDone: (u: User, t: string)
   return (
     <View style={s.authOuter}>
       <Image source={require("./assets/auth-background-v2.png")} resizeMode="cover" style={s.fullBleedImage}/>
-      <SystemChrome dark background="#17214B" canvas="#17214B"/>
+      <SystemChrome dark background="#17214B" canvas="#146E78"/>
       <Animated.View style={[s.authContent,{opacity:entranceOpacity}]}>
       <SafeAreaView edges={["top","right","bottom","left"]} style={s.authScreen}>
         {phase === "welcome" && <View style={s.authWelcome}>
@@ -481,6 +485,8 @@ function Home({
   onOpenDoctor: (doctorID: string) => void;
 }) {
   const [wellness, setWellness] = useState<"activity" | "nutrition" | null>(null);
+  const [article, setArticle] = useState<ClinicalArticle | null>(null);
+  const [articles, setArticles] = useState<ClinicalArticle[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
   const age = user.patient_profile?.age || 35;
   const ageTone = age < 40 ? "young" : age < 65 ? "middle" : "senior";
@@ -489,6 +495,7 @@ function Home({
   const latestNeedsAttention = !!latest && (latest.ai_review?.doctor_needed || latest.markers.some((marker) => marker.status === "high" || marker.status === "low"));
   const upcoming = consultations.filter((item) => item.service_type === "appointment" && item.appointment_at && new Date(item.appointment_at) > new Date()).sort((a, b) => (a.appointment_at || "").localeCompare(b.appointment_at || ""))[0];
   const answered = consultations.find((item) => item.status === "answered" && item.reply);
+  useEffect(()=>{api.articles().then(setArticles).catch(()=>setArticles([]))},[]);
   if (user.role === "doctor") {
     return <DoctorHome consultations={consultations} compact={compact} onPatients={() => onTab("patients")} onSchedule={() => onTab("schedule")} />;
   }
@@ -516,10 +523,11 @@ function Home({
         </View>
       </LinearGradient>
       <View style={[s.homeDiscovery, compact && s.homeDiscoveryCompact]}>
-        <WellnessPhotoCard ageBand={ageGroup} onPress={() => setWellness("activity")} />
-        <NutritionMediaCard ageTone={ageTone} onPress={() => setWellness("nutrition")} />
+        <ClinicalArticleCarousel articles={articles} onPress={setArticle}/>
+        <WellnessCombinedCard ageBand={ageGroup} ageTone={ageTone} onPress={setWellness}/>
       </View>
       <WellnessModal kind={wellness} user={user} analyses={analyses} onClose={() => setWellness(null)} onUser={onUser} />
+      <ArticleReader article={article} onClose={()=>setArticle(null)}/>
       <PatientProfileModal visible={profileOpen} user={user} onUpdated={onUser} onClose={() => setProfileOpen(false)} />
     </View>
   );
@@ -614,6 +622,28 @@ function NutritionMediaCard({ ageTone, onPress }: { ageTone: "young" | "middle" 
   const image = nutritionImages[(base + offset) % 3];
   const subtitle = ageTone === "young" ? "Энергия, белок и регулярный режим" : ageTone === "middle" ? "Баланс, клетчатка и разумные порции" : "Простая питательная еда и достаточное питьё";
   return <Pressable onPress={onPress} style={({pressed})=>[s.homeMediaCard,pressed&&{opacity:.86}]}><Animated.Image source={image} style={[s.homeMediaImage as any,{opacity}]}/><LinearGradient colors={["#111827CC","#11182712"]} start={{x:0,y:1}} end={{x:1,y:0}} style={s.videoOverlay}><View style={{flex:1}}><Text style={s.videoEyebrow}>ПРАВИЛЬНОЕ ПИТАНИЕ</Text><Text style={s.videoTitle}>Еда для здоровья</Text><Text style={s.videoSubtitle}>{subtitle}</Text></View><View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white}/></View></LinearGradient></Pressable>;
+}
+
+const fallbackArticle: ClinicalArticle = {id:"66d000000000000000000001",title:"Сонные артерии: атеросклероз и кровоснабжение мозга",summary:"Как бляшка сужает артерию и какие исследования помогают оценить риск.",cover_url:"/clinical-carotid-overview.svg",published:true,created_at:"2026-09-02T00:00:00Z",updated_at:"2026-09-02T00:00:00Z",blocks:[{id:"intro",type:"text",text:"Сонные артерии доставляют кровь к головному мозгу. Атеросклеротическая бляшка чаще формируется в области бифуркации общей сонной артерии и постепенно сужает её просвет."},{id:"image",type:"image",image_url:"/clinical-carotid-overview.svg",caption:"Схема стеноза и ангиографическое представление сонной артерии."},{id:"symptoms",type:"text",text:"Внезапная слабость в руке или ноге, асимметрия лица, нарушение речи или зрения требуют срочной медицинской оценки — даже если симптомы быстро прошли."},{id:"diagnostics",type:"text",text:"Для первичной оценки применяют ультразвуковое дуплексное сканирование. КТ-, МР- или рентгеноконтрастная ангиография помогают уточнить анатомию и степень сужения. Тактика определяется врачом индивидуально."}]};
+const articleImageURI=(value:string)=>/^https?:/i.test(value)?value:Platform.OS==="web"?value:`${API_URL.replace(/\/api\/v1\/?$/,"")}${value}`;
+
+function ClinicalArticleCarousel({articles,onPress}:{articles:ClinicalArticle[];onPress:(article:ClinicalArticle)=>void}){
+  const items=articles.length?articles.filter(item=>item.published):[fallbackArticle];
+  const [index,setIndex]=useState(0);const opacity=useRef(new Animated.Value(1)).current;
+  useEffect(()=>{setIndex(0);const timer=setInterval(()=>Animated.timing(opacity,{toValue:0,duration:650,useNativeDriver:true}).start(()=>{setIndex(value=>(value+1)%Math.max(1,items.length));Animated.timing(opacity,{toValue:1,duration:850,useNativeDriver:true}).start()}),10000);return()=>{clearInterval(timer);opacity.stopAnimation()}},[items.length,opacity]);
+  const item=items[index%items.length]||fallbackArticle;
+  return <Pressable onPress={()=>onPress(item)} style={({pressed})=>[s.homeMediaCard,pressed&&{opacity:.88}]}><Animated.Image source={{uri:articleImageURI(item.cover_url||fallbackArticle.cover_url)}} style={[s.homeMediaImage as any,{opacity}]}/><LinearGradient colors={["#091226E8","#10182720"]} start={{x:0,y:1}} end={{x:1,y:0}} style={s.videoOverlay}><View style={{flex:1}}><Text style={s.videoEyebrow}>КЛИНИЧЕСКИЕ СЛУЧАИ</Text><Text numberOfLines={2} style={s.articleHeroTitle}>{item.title}</Text><Text numberOfLines={1} style={s.videoSubtitle}>{item.summary}</Text></View><View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white}/></View></LinearGradient></Pressable>
+}
+
+function WellnessCombinedCard({ageBand,ageTone,onPress}:{ageBand:AgeBand;ageTone:"young"|"middle"|"senior";onPress:(kind:"activity"|"nutrition")=>void}){
+  const activity=activityImages[ageBand][0]!;const nutrition=nutritionImages[ageTone==="young"?0:ageTone==="middle"?1:2]!;
+  const [kind,setKind]=useState<"activity"|"nutrition">("activity");const opacity=useRef(new Animated.Value(1)).current;
+  useEffect(()=>{const timer=setInterval(()=>Animated.timing(opacity,{toValue:0,duration:700,useNativeDriver:true}).start(()=>{setKind(value=>value==="activity"?"nutrition":"activity");Animated.timing(opacity,{toValue:1,duration:900,useNativeDriver:true}).start()}),10000);return()=>{clearInterval(timer);opacity.stopAnimation()}},[opacity]);
+  return <Pressable onPress={()=>onPress(kind)} style={({pressed})=>[s.homeMediaCard,pressed&&{opacity:.88}]}><Animated.Image source={kind==="activity"?activity:nutrition} style={[s.homeMediaImage as any,{opacity}]}/><LinearGradient colors={["#10182ADD","#10182A18"]} start={{x:0,y:1}} end={{x:1,y:0}} style={s.videoOverlay}><View style={{flex:1}}><Text style={s.videoEyebrow}>АКТИВНЫЙ ОБРАЗ ЖИЗНИ И ПРАВИЛЬНОЕ ПИТАНИЕ</Text><Text style={s.videoTitle}>{kind==="activity"?"Движение каждый день":"Еда для здоровья"}</Text><Text style={s.videoSubtitle}>{kind==="activity"?"Рекомендации с учётом возраста":"Баланс и понятные привычки"}</Text></View><View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white}/></View></LinearGradient></Pressable>
+}
+
+function ArticleReader({article,onClose}:{article:ClinicalArticle|null;onClose:()=>void}){
+  return <Modal visible={!!article} animationType="slide" onRequestClose={onClose}><SafeAreaView style={s.articleReader}><View style={s.articleReaderHeader}><Pressable accessibilityLabel="Назад" style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.articleReaderHeaderTitle}>Клинический случай</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.articleReaderBody}>{article&&<><Image source={{uri:articleImageURI(article.cover_url)}} style={s.articleReaderCover}/><Text style={s.articleReaderTitle}>{article.title}</Text><Text style={s.articleReaderSummary}>{article.summary}</Text>{article.blocks.map(block=>block.type==="image"?<View key={block.id} style={s.articleImageBlock}><Image source={{uri:articleImageURI(block.image_url||article.cover_url)}} style={s.articleBlockImage}/>{block.caption?<Text style={s.articleCaption}>{block.caption}</Text>:null}</View>:<Text key={block.id} style={s.articleParagraph}>{block.text}</Text>)}<View style={s.clinicalNotice}><Ionicons name="information-circle-outline" size={21} color={colors.amber}/><Text style={s.aiDisclaimer}>Материал носит информационный характер и не заменяет консультацию врача.</Text></View></>}</ScrollView></SafeAreaView></Modal>
 }
 
 function FoodPart({ icon: foodIcon, value, label, color }: { icon: keyof typeof Ionicons.glyphMap; value: string; label: string; color: string }) {
@@ -884,11 +914,10 @@ function DoctorSchedule({ user, compact }: { user: User; compact: boolean }) {
   const monthStart=new Date(week.getFullYear(),week.getMonth(),1);const monthCalendarStart=weekStart(monthStart);const monthDays=Array.from({length:42},(_,i)=>addDays(monthCalendarStart,i));
   function toggle(d:number,h:number,m:number){if(!edit)return;const value=addDays(week,d);value.setHours(h,m,0,0);if(value<=new Date())return;const key=slotKey(value);if(slots.some(x=>slotKey(x.start_at)===key&&x.status==="booked"))return;setSelected(current=>{const next=new Set(current);next.has(key)?next.delete(key):next.add(key);return next})}
   async function save(){setBusy(true);try{await api.saveSchedule(from,to,[...selected]);setEdit(false);await load()}catch(e){Alert.alert("Не удалось сохранить",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
-  return <View style={[s.schedulePage, compact && s.schedulePageCompact]}><View style={s.scheduleHeading}><View><Text style={s.scheduleTitle}>Время</Text><Text style={s.scheduleSubtitle}>Доступные часы и записи пациентов</Text></View><Pressable style={s.scheduleEditLight} onPress={()=>edit?void save():setEdit(true)}><Ionicons name={edit?"checkmark":"create-outline"} size={19} color={colors.brand}/><Text style={s.scheduleEditLightText}>{busy?"Сохраняем…":edit?"Готово":"Править"}</Text></Pressable></View>
+  return <View style={[s.schedulePage, compact && s.schedulePageCompact]}><View style={s.scheduleHeading}><View style={s.weekToolbar}><Pressable style={s.scheduleArrow} onPress={()=>setWeek(addDays(week,-7))}><Ionicons name="chevron-back" size={25} color={colors.ink}/></Pressable><Pressable onPress={()=>setWeek(weekStart())}><Text style={s.weekTitle}>{week.toLocaleDateString("ru-RU",{day:"numeric",month:"short"})} — {addDays(week,6).toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}</Text></Pressable><Pressable style={s.scheduleArrow} onPress={()=>setWeek(addDays(week,7))}><Ionicons name="chevron-forward" size={25} color={colors.ink}/></Pressable></View><Pressable style={s.scheduleEditLight} onPress={()=>edit?void save():setEdit(true)}><Ionicons name={edit?"checkmark":"create-outline"} size={19} color={colors.brand}/><Text style={s.scheduleEditLightText}>{busy?"Сохраняем…":edit?"Готово":"Править"}</Text></Pressable></View>
     {!compact&&<View style={s.monthOverview}><View style={s.monthOverviewHead}><Text style={s.monthOverviewTitle}>{monthStart.toLocaleDateString("ru-RU",{month:"long",year:"numeric"})}</Text><Pressable onPress={()=>setWeek(weekStart())}><Text style={s.link}>Сегодня</Text></Pressable></View><View style={s.monthWeekNames}>{weekDays.map(label=><Text key={label} style={s.monthWeekName}>{label}</Text>)}</View><View style={s.monthGrid}>{monthDays.map(day=>{const current=day.getMonth()===monthStart.getMonth();const selectedWeek=day>=week&&day<addDays(week,7);return <Pressable key={day.toISOString()} onPress={()=>setWeek(weekStart(day))} style={[s.monthDay,selectedWeek&&s.monthDaySelected]}><Text style={[s.monthDayText,!current&&s.monthDayMuted,selectedWeek&&s.monthDayTextSelected]}>{day.getDate()}</Text></Pressable>})}</View></View>}
-    <View style={s.weekToolbar}><Pressable style={s.scheduleArrow} onPress={()=>setWeek(addDays(week,-7))}><Ionicons name="chevron-back" size={25} color={colors.ink}/></Pressable><Pressable onPress={()=>setWeek(weekStart())}><Text style={s.weekTitle}>{week.toLocaleDateString("ru-RU",{day:"numeric",month:"short"})} — {addDays(week,6).toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}</Text></Pressable><Pressable style={s.scheduleArrow} onPress={()=>setWeek(addDays(week,7))}><Ionicons name="chevron-forward" size={25} color={colors.ink}/></Pressable></View>
     {edit&&<View style={s.editHint}><Ionicons name="information-circle-outline" size={20} color={colors.violet}/><Text style={s.aiDisclaimer}>Выберите будущие ячейки. Прошедшее время недоступно.</Text></View>}
-    <ScrollView horizontal style={s.calendarHorizontal} contentContainerStyle={{minWidth:760}}><View><View style={s.calendarHeader}><View style={s.timeColumn}/>{weekDays.map((label,i)=><View key={label} style={s.dayHeader}><Text style={s.dayName}>{label}</Text><Text style={s.dayNumber}>{addDays(week,i).getDate()}</Text></View>)}</View><ScrollView style={s.calendarVertical} nestedScrollEnabled>{rows.map(({h,m})=><View key={`${h}-${m}`} style={s.calendarRow}><View style={s.timeColumn}><Text style={s.timeText}>{String(h).padStart(2,"0")}:{String(m).padStart(2,"0")}</Text></View>{weekDays.map((_,d)=>{const value=addDays(week,d);value.setHours(h,m,0,0);const past=value<=new Date();const key=slotKey(value);const booked=slots.find(x=>slotKey(x.start_at)===key&&x.status==="booked");const available=selected.has(key)&&!past;return <Pressable key={d} disabled={past} onPress={()=>toggle(d,h,m)} style={[s.calendarCell,past&&s.pastCell,available&&s.availableCell,booked&&s.bookedCell]}><Text numberOfLines={2} style={[s.cellText,(available||booked)&&{color:colors.white}]}>{booked?(booked.patient_name||"Пациент"):available?"Доступно":""}</Text></Pressable>})}</View>)}</ScrollView></View></ScrollView>
+    <ScrollView horizontal style={s.calendarHorizontal} contentContainerStyle={s.calendarHorizontalContent}><View style={s.calendarInner}><View style={s.calendarHeader}><View style={s.timeColumn}/>{weekDays.map((label,i)=><View key={label} style={s.dayHeader}><Text style={s.dayName}>{label}</Text><Text style={s.dayNumber}>{addDays(week,i).getDate()}</Text></View>)}</View><ScrollView style={s.calendarVertical} nestedScrollEnabled>{rows.map(({h,m})=><View key={`${h}-${m}`} style={s.calendarRow}><View style={s.timeColumn}><Text style={s.timeText}>{String(h).padStart(2,"0")}:{String(m).padStart(2,"0")}</Text></View>{weekDays.map((_,d)=>{const value=addDays(week,d);value.setHours(h,m,0,0);const past=value<=new Date();const key=slotKey(value);const booked=slots.find(x=>slotKey(x.start_at)===key&&x.status==="booked");const available=selected.has(key)&&!past;return <Pressable key={d} disabled={past} onPress={()=>toggle(d,h,m)} style={[s.calendarCell,past&&s.pastCell,available&&s.availableCell,booked&&s.bookedCell]}><Text numberOfLines={2} style={[s.cellText,(available||booked)&&{color:colors.white}]}>{booked?(booked.patient_name||"Пациент"):available?"Доступно":""}</Text></Pressable>})}</View>)}</ScrollView></View></ScrollView>
   </View>
 }
 
@@ -907,7 +936,7 @@ function DoctorPatients({ patientsAnalyses, consultations, onOpen, onRefresh }: 
 }
 
 function AIWorkspace(){const [chats,setChats]=useState<AIChat[]>([]);const [active,setActive]=useState<AIChat|null>(null);const [message,setMessage]=useState("");const [title,setTitle]=useState("");const [busy,setBusy]=useState(false);const [listening,setListening]=useState(false);const load=()=>api.aiChats().then(setChats).catch(()=>setChats([]));useEffect(()=>{void load()},[]);async function open(chat:AIChat){setActive(await api.aiChat(chat.id));setTitle(chat.title)}async function create(){const c=await api.createAIChat();setActive(c);setTitle(c.title);void load()}async function send(){if(!active||!message.trim())return;const text=message.trim();setMessage("");setBusy(true);try{await api.aiMessage(active.id,text);setActive(await api.aiChat(active.id));void load()}catch(e){setMessage(text);Alert.alert("AI недоступен",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}async function rename(){if(active&&title.trim()){await api.renameAIChat(active.id,title.trim());setActive({...active,title:title.trim()});void load()}}async function remove(){if(!active)return;await api.deleteAIChat(active.id);setActive(null);void load()}
-  return <><ScrollView contentContainerStyle={s.scroll}><View style={s.aiWorkspaceHeader}><View style={s.aiWorkspaceCopy}><Text style={s.sectionTitle}>Беседы с AI</Text><Text style={s.sectionIntro}>Клиническое рассуждение и подготовка вопросов. Решение всегда принимает врач.</Text></View><Button compact icon="add" label="Новая консультация" onPress={()=>void create()}/></View>{chats.map(c=><Pressable key={c.id} style={s.aiChatCard} onPress={()=>void open(c)}><View style={s.aiChatIcon}><Ionicons name="sparkles" size={22} color={colors.white}/></View><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{c.title}</Text><Text style={s.analysisMeta}>{new Date(c.updated_at).toLocaleString("ru-RU")}</Text><Text numberOfLines={2} style={s.analysisSummary}>{c.messages?.[0]?.content||"Новая беседа"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>)}{!chats.length&&<Empty icon="sparkles-outline" title="Бесед пока нет" text="Создайте консультацию, чтобы обсудить клинический вопрос с AI."/>}</ScrollView><Modal visible={!!active} animationType="slide" onRequestClose={()=>setActive(null)}><SafeAreaView style={s.chatPage}><View style={s.chatHeader}><Pressable style={s.iconButton} onPress={()=>setActive(null)}><Ionicons name="arrow-back" size={24}/></Pressable><TextInput style={s.chatTitleInput} value={title} onChangeText={setTitle} onBlur={()=>void rename()}/><Pressable style={s.iconButton} onPress={()=>void remove()}><Ionicons name="trash-outline" size={22} color={colors.coral}/></Pressable></View><ScrollView style={{flex:1}} contentContainerStyle={s.messages}>{active?.messages.map((m,i)=><View key={i} style={[s.messageBubble,m.role==="user"?s.userBubble:s.assistantBubble]}><Text style={[s.body,m.role==="user"&&{color:colors.white}]}>{m.content}</Text><Text style={[s.messageTime,m.role==="user"&&{color:"#FFFFFFAA"}]}>{new Date(m.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}{busy&&<View style={[s.messageBubble,s.assistantBubble]}><ActivityIndicator color={colors.violet}/></View>}</ScrollView><View style={s.chatComposer}><Pressable style={s.iconButton} onPress={()=>startDictation(setMessage,setListening)}><Ionicons name={listening?"radio":"mic-outline"} size={23} color={colors.violet}/></Pressable><TextInput multiline style={s.chatInput} placeholder="Сообщение AI…" value={message} onChangeText={setMessage}/><Pressable disabled={busy||!message.trim()} style={s.sendButton} onPress={()=>void send()}><Ionicons name="arrow-up" size={22} color={colors.white}/></Pressable></View></SafeAreaView></Modal></>
+  return <><ScrollView contentContainerStyle={s.scroll}><View style={s.aiWorkspaceHeader}><View style={{flex:1}}/><Button compact icon="add" label="Новая консультация" onPress={()=>void create()}/></View>{chats.map(c=><Pressable key={c.id} style={s.aiChatCard} onPress={()=>void open(c)}><View style={s.aiChatIcon}><Ionicons name="sparkles" size={22} color={colors.white}/></View><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{c.title}</Text><Text style={s.analysisMeta}>{new Date(c.updated_at).toLocaleString("ru-RU")}</Text><Text numberOfLines={2} style={s.analysisSummary}>{c.messages?.[0]?.content||"Новая беседа"}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>)}{!chats.length&&<Empty icon="sparkles-outline" title="Бесед пока нет" text="Создайте консультацию, чтобы обсудить клинический вопрос с AI."/>}</ScrollView><Modal visible={!!active} animationType="slide" onRequestClose={()=>setActive(null)}><SafeAreaView style={s.chatPage}><View style={s.chatHeader}><Pressable style={s.iconButton} onPress={()=>setActive(null)}><Ionicons name="arrow-back" size={24}/></Pressable><TextInput style={s.chatTitleInput} value={title} onChangeText={setTitle} onBlur={()=>void rename()}/><Pressable style={s.iconButton} onPress={()=>void remove()}><Ionicons name="trash-outline" size={22} color={colors.coral}/></Pressable></View><ScrollView style={{flex:1}} contentContainerStyle={s.messages}>{active?.messages.map((m,i)=><View key={i} style={[s.messageBubble,m.role==="user"?s.userBubble:s.assistantBubble]}><Text style={[s.body,m.role==="user"&&{color:colors.white}]}>{m.content}</Text><Text style={[s.messageTime,m.role==="user"&&{color:"#FFFFFFAA"}]}>{new Date(m.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}{busy&&<View style={[s.messageBubble,s.assistantBubble]}><ActivityIndicator color={colors.violet}/></View>}</ScrollView><View style={s.chatComposer}><Pressable style={s.iconButton} onPress={()=>startDictation(setMessage,setListening)}><Ionicons name={listening?"radio":"mic-outline"} size={23} color={colors.violet}/></Pressable><TextInput multiline style={s.chatInput} placeholder="Сообщение AI…" value={message} onChangeText={setMessage}/><Pressable disabled={busy||!message.trim()} style={s.sendButton} onPress={()=>void send()}><Ionicons name="arrow-up" size={22} color={colors.white}/></Pressable></View></SafeAreaView></Modal></>
 }
 
 function Guides(){
@@ -915,8 +944,23 @@ function Guides(){
   const load=async(sync=false)=>{setBusy(true);try{const r=sync?await api.syncGuides():await api.guides();setCatalog(r.items);setSynced(r.synced_at)}catch(e){Alert.alert("Guides недоступны",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}};useEffect(()=>{void load()},[]);
   async function open(item:Guide){setBusy(true);try{setActive(await api.guide(item.id));positions.current={}}catch(e){Alert.alert("Документ недоступен",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
   const filtered=catalog.filter(g=>`${g.title} ${g.code} ${g.category} ${g.specialties?.join(" ")} ${g.developers?.join(" ")}`.toLowerCase().includes(query.toLowerCase())).slice(0,120);
-  return <><ScrollView contentContainerStyle={s.scroll}><View style={s.rowBetween}><Text style={s.sectionIntro}>Взрослая кардиология и терапия</Text><Pressable style={s.iconButton} onPress={()=>void load(true)}>{busy?<ActivityIndicator/>:<Ionicons name="refresh" size={21} color={colors.brand}/>}</Pressable></View><View style={s.doctorSearch}><Ionicons name="search" size={21} color={colors.muted}/><TextInput style={s.doctorSearchInput} value={query} onChangeText={setQuery} placeholder="Название, МКБ или раздел…"/></View><View style={s.guidelineGrid}>{filtered.map(g=><Pressable key={g.id} style={s.guidelineCard} onPress={()=>void open(g)}><View style={s.wellnessIcon}><Ionicons name="book-outline" size={23} color={colors.brand}/></View><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{g.title}</Text><Text style={s.analysisMeta}>{[g.code,g.specialties?.join(", "),g.status].filter(Boolean).join(" · ")}</Text>{g.published_at?<Text style={s.guidePublished}>Опубликовано {date(g.published_at)}</Text>:null}</View><Ionicons name="chevron-forward" size={20} color={colors.brand}/></Pressable>)}</View><View style={s.clinicalNotice}><Ionicons name="shield-checkmark-outline" size={22} color={colors.amber}/><Text style={s.aiDisclaimer}>Перед решением сверяйте редакцию и применимость с официальным оригиналом.</Text></View></ScrollView>
+  return <><ScrollView contentContainerStyle={s.scroll}><View style={s.doctorSearch}><Ionicons name="search" size={21} color={colors.muted}/><TextInput style={s.doctorSearchInput} value={query} onChangeText={setQuery} placeholder="Название, МКБ или раздел…"/><Pressable style={s.searchRefresh} onPress={()=>void load(true)}>{busy?<ActivityIndicator size="small"/>:<Ionicons name="refresh" size={21} color={colors.brand}/>}</Pressable></View><View style={s.guidelineGrid}>{filtered.map(g=><Pressable key={g.id} style={s.guidelineCard} onPress={()=>void open(g)}><View style={s.wellnessIcon}><Ionicons name="book-outline" size={23} color={colors.brand}/></View><View style={{flex:1}}><Text style={s.doctorDirectoryName}>{g.title}</Text><Text style={s.analysisMeta}>{[g.code,g.specialties?.join(", "),g.status].filter(Boolean).join(" · ")}</Text>{g.published_at?<Text style={s.guidePublished}>Опубликовано {date(g.published_at)}</Text>:null}</View><Ionicons name="chevron-forward" size={20} color={colors.brand}/></Pressable>)}</View><View style={s.clinicalNotice}><Ionicons name="shield-checkmark-outline" size={22} color={colors.amber}/><Text style={s.aiDisclaimer}>Перед решением сверяйте редакцию и применимость с официальным оригиналом.</Text></View></ScrollView>
   <Modal visible={!!active} animationType="slide" onRequestClose={()=>setActive(null)}><SafeAreaView style={s.guideReader}><View style={s.chatHeader}><Pressable style={s.iconButton} onPress={()=>setActive(null)}><Ionicons name="arrow-back" size={24}/></Pressable><View style={{flex:1}}><Text numberOfLines={1} style={s.doctorDirectoryName}>{active?.title}</Text><Text style={s.analysisMeta}>{[active?.code,active?.status].filter(Boolean).join(" · ")}</Text></View><Pressable style={s.iconButton} onPress={()=>active&&void Linking.openURL(active.source_url)}><Ionicons name="open-outline" size={22} color={colors.brand}/></Pressable></View><ScrollView ref={reader} contentContainerStyle={s.guideBody}><View style={s.guideContents}><Text style={s.cardTitle}>Содержание</Text>{active?.sections?.map((section,index)=><Pressable key={section.id} style={s.contentsRow} onPress={()=>reader.current?.scrollTo({y:positions.current[section.id]||0,animated:true})}><Text style={s.contentsNumber}>{index+1}</Text><Text style={s.contentsTitle}>{section.title}</Text></Pressable>)}</View>{active?.sections?.map(section=><View key={section.id} onLayout={e=>{positions.current[section.id]=e.nativeEvent.layout.y}} style={s.guideSection}><Text style={s.guideSectionTitle}>{section.title}</Text><Text selectable style={s.guideText}>{section.content}</Text><Pressable style={s.backToContents} onPress={()=>reader.current?.scrollTo({y:0,animated:true})}><Ionicons name="arrow-up" size={16} color={colors.brand}/><Text style={s.link}>К содержанию</Text></Pressable></View>)}</ScrollView></SafeAreaView></Modal></>
+}
+
+const newArticle=():ClinicalArticle=>({id:"",title:"",summary:"",cover_url:"",published:false,blocks:[],created_at:"",updated_at:""});
+function ArticleManager(){
+  const [items,setItems]=useState<ClinicalArticle[]>([]);const [editing,setEditing]=useState<ClinicalArticle|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState("");
+  const load=()=>api.articles().then(setItems).catch(e=>setError(e instanceof Error?e.message:"Не удалось загрузить публикации"));useEffect(()=>{void load()},[]);
+  const update=(patch:Partial<ClinicalArticle>)=>setEditing(current=>current?{...current,...patch}:current);
+  const updateBlock=(index:number,patch:Partial<ArticleBlock>)=>setEditing(current=>current?{...current,blocks:current.blocks.map((block,i)=>i===index?{...block,...patch}:block)}:current);
+  const addBlock=(type:"text"|"image")=>setEditing(current=>current?{...current,blocks:[...current.blocks,{id:`block-${Date.now()}-${current.blocks.length}`,type,text:"",image_url:"",caption:""}]}:current);
+  async function chooseImage(index:number){const result=await ImagePicker.launchImageLibraryAsync({mediaTypes:["images"],quality:.9});if(result.canceled)return;const asset=result.assets[0]!;setBusy(true);setError("");try{const uploaded=await api.uploadArticleImage({uri:asset.uri,name:asset.fileName||`article-${Date.now()}.jpg`,mimeType:asset.mimeType,file:(asset as any).file});updateBlock(index,{image_url:uploaded.url});setEditing(current=>current&&current.cover_url?current:current?{...current,cover_url:uploaded.url}:current)}catch(e){setError(e instanceof Error?e.message:"Не удалось загрузить изображение")}finally{setBusy(false)}}
+  async function save(){if(!editing||!editing.title.trim())return;setBusy(true);setError("");const payload={title:editing.title.trim(),summary:editing.summary.trim(),cover_url:editing.cover_url||editing.blocks.find(block=>block.image_url)?.image_url||"/clinical-carotid-overview.svg",published:editing.published,blocks:editing.blocks};try{if(editing.id)await api.updateArticle(editing.id,payload);else await api.createArticle(payload);setEditing(null);await load()}catch(e){setError(e instanceof Error?e.message:"Не удалось сохранить публикацию")}finally{setBusy(false)}}
+  async function toggle(item:ClinicalArticle){try{await api.updateArticle(item.id,{title:item.title,summary:item.summary,cover_url:item.cover_url,published:!item.published,blocks:item.blocks});await load()}catch(e){setError(e instanceof Error?e.message:"Не удалось изменить публикацию")}}
+  async function remove(item:ClinicalArticle){if(Platform.OS==="web"&&!window.confirm(`Удалить «${item.title}»?`))return;try{await api.deleteArticle(item.id);await load()}catch(e){setError(e instanceof Error?e.message:"Не удалось удалить публикацию")}}
+  if(editing)return <ScrollView contentContainerStyle={s.articleManager}><View style={s.articleManagerToolbar}><Pressable style={s.backLink} onPress={()=>setEditing(null)}><Ionicons name="arrow-back" size={20} color={colors.brand}/><Text style={s.link}>К списку</Text></Pressable><Button compact label={busy?"Сохраняем…":"Сохранить"} disabled={busy||!editing.title.trim()} onPress={()=>void save()}/></View>{error?<Text style={s.error}>{error}</Text>:null}<View style={s.articleEditorMeta}><Field label="Заголовок" value={editing.title} onChangeText={(title:string)=>update({title})}/><Field label="Краткое описание" multiline value={editing.summary} onChangeText={(summary:string)=>update({summary})}/><Pressable onPress={()=>update({published:!editing.published})} style={s.publishToggle}><View style={[s.consentBox,editing.published&&s.consentBoxChecked]}>{editing.published&&<Ionicons name="checkmark" size={16} color={colors.white}/>}</View><Text style={s.consentLabel}>Показывать пользователям</Text></Pressable></View><View style={s.articleBlocksHeader}><Text style={s.sectionTitle}>Содержание</Text><View style={s.articleBlockActions}><MiniAction label="Текст" icon="text-outline" onPress={()=>addBlock("text")}/><MiniAction label="Изображение" icon="image-outline" onPress={()=>addBlock("image")}/></View></View><View style={s.articleBuilder}>{editing.blocks.map((block,index)=><View key={block.id} style={s.articleBuilderBlock}><View style={s.rowBetween}><Text style={s.replyLabel}>{block.type==="text"?"Текстовый блок":"Изображение"}</Text><Pressable onPress={()=>setEditing(current=>current?{...current,blocks:current.blocks.filter((_,i)=>i!==index)}:current)}><Ionicons name="trash-outline" size={21} color={colors.coral}/></Pressable></View>{block.type==="text"?<TextInput multiline style={[s.input,s.articleTextBlock]} placeholder="Текст публикации…" value={block.text||""} onChangeText={text=>updateBlock(index,{text})}/>:<>{block.image_url?<Image source={{uri:articleImageURI(block.image_url)}} style={s.articleBuilderImage}/>:<Pressable style={s.articleImagePlaceholder} onPress={()=>void chooseImage(index)}><Ionicons name="image-outline" size={34} color={colors.brand}/><Text style={s.link}>Выбрать изображение</Text></Pressable>}<Field label="Подпись" value={block.caption||""} onChangeText={(caption:string)=>updateBlock(index,{caption})}/>{block.image_url?<MiniAction label="Заменить" icon="images-outline" onPress={()=>void chooseImage(index)}/>:null}</>}</View>)}</View></ScrollView>;
+  return <ScrollView contentContainerStyle={s.articleManager}><View style={s.articleManagerToolbar}><Text style={s.sectionIntro}>Клинические материалы для пользовательской витрины</Text><Button compact icon="add" label="Новая публикация" onPress={()=>setEditing(newArticle())}/></View>{error?<Text style={s.error}>{error}</Text>:null}<View style={s.articleAdminList}>{items.map(item=><Pressable key={item.id} style={s.articleAdminRow} onPress={()=>setEditing(item)}><Image source={{uri:articleImageURI(item.cover_url)}} style={s.articleAdminThumb}/><View style={{flex:1,minWidth:0}}><Text numberOfLines={1} style={s.doctorDirectoryName}>{item.title}</Text><Text numberOfLines={1} style={s.analysisMeta}>{item.summary}</Text></View><Pressable accessibilityRole="checkbox" accessibilityState={{checked:item.published}} hitSlop={8} onPress={event=>{event.stopPropagation();void toggle(item)}} style={[s.consentBox,item.published&&s.consentBoxChecked]}>{item.published&&<Ionicons name="checkmark" size={16} color={colors.white}/>}</Pressable><Pressable hitSlop={8} onPress={event=>{event.stopPropagation();void remove(item)}} style={s.deleteCardButton}><Ionicons name="trash-outline" size={19} color={colors.coral}/></Pressable></Pressable>)}</View>{!items.length?<Empty icon="newspaper-outline" title="Публикаций пока нет" text="Создайте материал из текстовых и графических блоков."/>:null}</ScrollView>
 }
 
 function DoctorsScreen({ user, onRefresh, initialDoctorID, onTargetHandled, onTargetBack }: { user: User; onRefresh: () => void; initialDoctorID?: string; onTargetHandled?: () => void; onTargetBack?: () => void }) {
@@ -1646,8 +1690,8 @@ function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) =>
   const visualIndex=gestureIndex??activeIndex;
   const tilt=dropTilt.interpolate({inputRange:[-1,0,1],outputRange:["-7deg","0deg","7deg"]});
   const dockInsets = Platform.OS === "web"
-    ? ({ bottom: "calc(env(safe-area-inset-bottom, 0px) + 6px)", height: 54 } as any)
-    : { bottom: Math.max(14, insets.bottom + 6), height: 54 };
+    ? ({ bottom: 6, height: 66 } as any)
+    : { bottom: Math.max(6, insets.bottom - 22), height: 66 };
   return (
     <View nativeID="mobile-navigation" testID="bottom-nav" style={[s.bottom, dockInsets]} onLayout={(event)=>setNavWidth(event.nativeEvent.layout.width)} {...panResponder.panHandlers}>
       {navWidth > 0 && <Animated.View pointerEvents="none" style={[s.bottomDrop,{width:Math.max(0,itemWidth-6),transform:[{translateX:dropX},{scaleX:dropScaleX},{scaleY:dropScaleY},{skewX:tilt}]}]}/>}
@@ -1911,8 +1955,8 @@ function Loading({ opacity }: { opacity: Animated.Value }) {
   return (
     <View style={s.loading}>
       <Image source={require("./assets/auth-background-v2.png")} resizeMode="cover" style={s.fullBleedImage}/>
-      <SystemChrome dark background="#17214B" canvas="#17214B"/>
-      <Animated.View style={[s.loadingContent,{opacity}]}><Ionicons name="shield-checkmark-outline" size={96} color="#DDFEFB"/><Text style={s.loadingTitle}>Ваше здоровье теперь под контролем</Text></Animated.View>
+      <SystemChrome dark background="#17214B" canvas="#146E78"/>
+      <Animated.View style={[s.loadingContent,{opacity}]}><View style={s.loadingShield}><Ionicons name="shield-checkmark-outline" size={108} color="#F4FFFE"/></View><Text style={s.loadingTitle}>Ваше здоровье теперь под контролем</Text></Animated.View>
     </View>
   );
 }
@@ -2031,7 +2075,7 @@ const s = StyleSheet.create({
     right: 8,
     bottom: 8,
     zIndex: 100,
-    height: 54,
+    height: 66,
     overflow: "hidden",
     flexDirection: "row",
     borderTopLeftRadius: 27,
@@ -2078,7 +2122,7 @@ const s = StyleSheet.create({
   bottomItem: {
     flex: 1,
     zIndex: 2,
-    height: 50,
+    height: 62,
     alignItems: "center",
     justifyContent: "center",
     gap: 2,
@@ -2827,6 +2871,7 @@ const s = StyleSheet.create({
   videoOverlay: { ...StyleSheet.absoluteFillObject, padding: 17, flexDirection: "row", alignItems: "flex-end" },
   videoEyebrow: { fontSize: 10, letterSpacing: 1.4, fontWeight: "900", color: "#C9D6FF" },
   videoTitle: { fontSize: 23, fontWeight: "900", color: colors.white, marginTop: 4 },
+  articleHeroTitle: { fontSize: 20, lineHeight: 24, fontWeight: "900", color: colors.white, marginTop: 4, maxWidth: 520 },
   videoSubtitle: { color: "#EEF3FF", fontSize: 14, marginTop: 3 },
   videoArrow: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#FFFFFF24", alignItems: "center", justifyContent: "center" },
   wellnessSheet: { width: "100%", maxWidth: 720, maxHeight: "92%", alignSelf: "center", marginTop: "auto", backgroundColor: colors.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22 },
@@ -2952,12 +2997,12 @@ const s = StyleSheet.create({
   doctorNoticeSection: { borderRadius: 23, padding: 17, gap: 10, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
   doctorNoticeRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.line },
   doctorNoticeIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.violetSoft },
-  schedulePage: { flex: 1, padding: 18, gap: 12, maxWidth: 1280, width: "100%", alignSelf: "center" },
-  schedulePageCompact: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 110 },
-  scheduleHeading: { minHeight: 64, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  schedulePage: { flex: 1, padding: 18, gap: 10, maxWidth: 1280, width: "100%", alignSelf: "center" },
+  schedulePageCompact: { paddingHorizontal: 8, paddingTop: 5, paddingBottom: 77 },
+  scheduleHeading: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 5 },
   scheduleTitle: { color: colors.ink, fontSize: 26, lineHeight: 32, fontWeight: "900" },
   scheduleSubtitle: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  scheduleEditLight: { minHeight: 42, borderRadius: 15, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  scheduleEditLight: { minHeight: 40, borderRadius: 14, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
   scheduleEditLightText: { color: colors.brand, fontSize: 13, fontWeight: "800" },
   monthOverview: { width: "100%", maxWidth: 720, alignSelf: "center", borderRadius: 24, padding: 18, gap: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
   monthOverviewHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -2976,11 +3021,13 @@ const s = StyleSheet.create({
   doctorWelcomeTitle: { color: colors.white, fontSize: 21, fontWeight: "800", marginTop: 4 },
   scheduleEdit: { minHeight: 42, borderRadius: 14, backgroundColor: "#FFFFFF20", paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 7 },
   scheduleEditText: { color: colors.white, fontSize: 12, fontWeight: "800" },
-  weekToolbar: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 18 },
-  weekTitle: { color: colors.ink, fontSize: 17, fontWeight: "800" },
+  weekToolbar: { minHeight: 44, flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 3 },
+  weekTitle: { color: colors.ink, fontSize: 15, fontWeight: "800" },
   editHint: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.violetSoft, borderRadius: 14, padding: 10 },
-  calendarHorizontal: { flex: 1, borderRadius: 18, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
-  calendarVertical: { maxHeight: 560 },
+  calendarHorizontal: { flex: 1, minHeight: 0, borderRadius: 18, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  calendarHorizontalContent: { minWidth: 760, flexGrow: 1 },
+  calendarInner: { flex: 1, minHeight: 0 },
+  calendarVertical: { flex: 1, minHeight: 0 },
   calendarHeader: { height: 58, flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.line },
   timeColumn: { width: 62, alignItems: "center", justifyContent: "center" },
   dayHeader: { width: 98, alignItems: "center", justifyContent: "center", borderLeftWidth: 1, borderLeftColor: colors.line },
@@ -2999,6 +3046,7 @@ const s = StyleSheet.create({
   aiChatIcon: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.violet },
   aiWorkspaceHeader: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   aiWorkspaceCopy: { flex: 1, minWidth: 220, maxWidth: 680, gap: 2 },
+  searchRefresh: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: colors.paper },
   chatPage: { flex: 1, backgroundColor: colors.paper },
   chatHeader: { minHeight: 68, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.line },
   chatTitleInput: { flex: 1, fontSize: 17, fontWeight: "800", color: colors.ink, padding: 10 },
@@ -3046,6 +3094,31 @@ const s = StyleSheet.create({
   guideSectionTitle: { color: colors.ink, fontSize: 21, lineHeight: 27, fontWeight: "900", marginBottom: 14 },
   guideText: { color: colors.ink, fontSize: 15, lineHeight: 24 },
   backToContents: { minHeight: 44, marginTop: 18, flexDirection: "row", gap: 7, alignItems: "center", alignSelf: "flex-start" },
+  articleReader: { flex: 1, backgroundColor: colors.paper },
+  articleReaderHeader: { minHeight: 64, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.paper },
+  articleReaderHeaderTitle: { flex: 1, textAlign: "center", color: colors.ink, fontSize: 17, fontWeight: "900" },
+  articleReaderBody: { width: "100%", maxWidth: 860, alignSelf: "center", padding: 18, paddingBottom: 80, gap: 16 },
+  articleReaderCover: { width: "100%", height: 280, borderRadius: 24, resizeMode: "cover", backgroundColor: colors.blueSoft },
+  articleReaderTitle: { color: colors.ink, fontSize: 27, lineHeight: 34, fontWeight: "900" },
+  articleReaderSummary: { color: colors.muted, fontSize: 16, lineHeight: 24, fontWeight: "600" },
+  articleImageBlock: { gap: 8 },
+  articleBlockImage: { width: "100%", height: 300, borderRadius: 20, resizeMode: "cover", backgroundColor: colors.blueSoft },
+  articleCaption: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  articleParagraph: { color: colors.ink, fontSize: 16, lineHeight: 26 },
+  articleManager: { width: "100%", maxWidth: 1050, alignSelf: "center", padding: 24, paddingBottom: 90, gap: 18 },
+  articleManagerToolbar: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  articleEditorMeta: { padding: 18, borderRadius: 22, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  publishToggle: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 11 },
+  articleBlocksHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 },
+  articleBlockActions: { flexDirection: "row", gap: 8 },
+  articleBuilder: { gap: 12 },
+  articleBuilderBlock: { padding: 16, gap: 12, borderRadius: 20, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  articleTextBlock: { minHeight: 160, textAlignVertical: "top", paddingTop: 13 },
+  articleBuilderImage: { width: "100%", height: 280, borderRadius: 18, resizeMode: "cover", backgroundColor: colors.blueSoft },
+  articleImagePlaceholder: { minHeight: 190, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line },
+  articleAdminList: { gap: 10 },
+  articleAdminRow: { minHeight: 86, padding: 10, borderRadius: 19, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  articleAdminThumb: { width: 92, height: 64, borderRadius: 14, resizeMode: "cover", backgroundColor: colors.blueSoft },
   webModalRoot: { position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 9999, backgroundColor: colors.paper } as any,
   fullScreenModal: { flex: 1, backgroundColor: colors.paper },
   fullScreenInner: { flex: 1, width: "100%", maxWidth: 1100, alignSelf: "center", backgroundColor: colors.paper },
@@ -3100,5 +3173,6 @@ const s = StyleSheet.create({
     backgroundColor: "#17214B",
   },
   loadingContent: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 20, paddingHorizontal: 30 },
+  loadingShield: { width: 154, height: 154, borderRadius: 77, alignItems: "center", justifyContent: "center", shadowColor: "#78FFF1", shadowOpacity: .55, shadowRadius: 28, shadowOffset: {width:0,height:0} },
   loadingTitle: { color: colors.white, fontSize: 25, lineHeight: 33, fontWeight: "900", textAlign: "center", maxWidth: 390 },
 });

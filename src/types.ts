@@ -16,3 +16,5 @@ export type AIChat = { id: string; doctor_id: string; title: string; messages: A
 export type GuideSection = { id: string; title: string; content: string };
 export type Guide = { id: string; code?: string; title: string; category?: string; status?: string; developers?: string[]; specialties?: string[]; published_at?: string; source_url: string; sections?: GuideSection[]; updated_at: string };
 export type GuideCatalog = { items: Guide[]; synced_at: string; source: string };
+export type ArticleBlock = { id: string; type: "text" | "image"; text?: string; image_url?: string; caption?: string };
+export type ClinicalArticle = { id: string; doctor_id?: string; title: string; summary: string; cover_url: string; published: boolean; blocks: ArticleBlock[]; created_at: string; updated_at: string };

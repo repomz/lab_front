@@ -1,10 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="440" height="956" viewBox="0 0 440 956">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#17214B"/><stop offset=".52" stop-color="#433A88"/><stop offset="1" stop-color="#146E78"/></linearGradient></defs>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#17214B"/><stop offset=".52" stop-color="#433A88"/><stop offset="1" stop-color="#146E78"/></linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FFFFFF"/><stop offset=".52" stop-color="#F4ECFF"/><stop offset="1" stop-color="#91FFF2"/></linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="8" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
   <rect width="440" height="956" fill="url(#g)"/>
   <circle cx="390" cy="75" r="165" fill="#8B5CF6" opacity=".18"/><circle cx="25" cy="900" r="155" fill="#20C4B5" opacity=".14"/>
-  <g transform="translate(110 300)" opacity=".96">
-    <path d="M110 4c31 31 66 47 103 57v73c0 67-39 113-103 143C46 247 7 201 7 134V61c37-10 72-26 103-57z" fill="none" stroke="#F7FCFF" stroke-width="13" stroke-linejoin="round"/>
-    <path d="M58 136l34 34 72-78" fill="none" stroke="#9AF3EA" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(110 300)" opacity=".98" filter="url(#glow)">
+    <path d="M110 4c31 31 66 47 103 57v73c0 67-39 113-103 143C46 247 7 201 7 134V61c37-10 72-26 103-57z" fill="none" stroke="url(#shield)" stroke-width="12" stroke-linejoin="round"/>
+    <path d="M58 136l34 34 72-78" fill="none" stroke="url(#shield)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <text x="220" y="635" text-anchor="middle" fill="#F6FBFF" font-family="-apple-system,BlinkMacSystemFont,Arial" font-size="30" font-weight="700">Ваше здоровье</text><text x="220" y="675" text-anchor="middle" fill="#F6FBFF" font-family="-apple-system,BlinkMacSystemFont,Arial" font-size="30" font-weight="700">под контролем</text>
   <text x="220" y="915" text-anchor="middle" fill="#A9D9C7" font-family="-apple-system,BlinkMacSystemFont,Arial" font-size="14" font-weight="700" letter-spacing="2">Lab</text>

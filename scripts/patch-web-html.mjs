@@ -17,6 +17,7 @@ const startupFiles = [
 for (const filename of ["lab-icon-v2-512.png", ...startupFiles]) {
   copyFileSync(resolve(assets, filename), resolve(dist, filename));
 }
+copyFileSync(resolve(assets, "clinical-carotid-overview.svg"), resolve(dist, "clinical-carotid-overview.svg"));
 copyFileSync(resolve(assets, "lab-icon-v2-512.png"), resolve(dist, "apple-touch-icon.png"));
 const manifestBase = {
   name: "Lab",
@@ -29,8 +30,8 @@ const manifestBase = {
   theme_color: "#17214B",
   icons: [{ src: "/lab-icon-v2-512.png", sizes: "512x512", type: "image/png", purpose: "any" }],
 };
-writeFileSync(resolve(dist, "manifest.webmanifest"), JSON.stringify({ ...manifestBase, id: "/patient", start_url: "/patient" }, null, 2));
-writeFileSync(resolve(dist, "manifest-doctor.webmanifest"), JSON.stringify({ ...manifestBase, id: "/doc", start_url: "/doc" }, null, 2));
+writeFileSync(resolve(dist, "manifest.webmanifest"), JSON.stringify({ ...manifestBase, id: "/patient", start_url: "/patient", scope: "/patient" }, null, 2));
+writeFileSync(resolve(dist, "manifest-doctor.webmanifest"), JSON.stringify({ ...manifestBase, id: "/doc", start_url: "/doc", scope: "/doc" }, null, 2));
 
 let html = readFileSync(indexPath, "utf8");
 
@@ -57,7 +58,7 @@ const appleMeta = [
   `    <link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3)" href="/startup-440x956@3x.png?v=${version}" />`,
   '    <meta name="apple-mobile-web-app-capable" content="yes" />',
   '    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />',
-  '    <style id="lab-system-canvas">html, body, #root { width: 100%; height: 100%; height: 100dvh; min-height: 100dvh; margin: 0; padding: 0; overflow: hidden; overscroll-behavior: none; background: #F6F4FA; } @media (max-width: 767px), (display-mode: standalone) { #mobile-navigation { position: fixed !important; left: 8px !important; right: 8px !important; bottom: calc(env(safe-area-inset-bottom, 0px) + 6px) !important; -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; touch-action: none !important; overscroll-behavior: contain !important; } #mobile-navigation * { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; } } html.lab-keyboard #root { bottom: auto !important; height: var(--lab-keyboard-height, 100%) !important; } html.lab-keyboard #mobile-navigation { display: none !important; } html.lab-keyboard [data-testid="support-page"] { padding-bottom: 0 !important; }</style>',
+  '    <style id="lab-system-canvas">html, body { position: fixed; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; overscroll-behavior: none; background: #146E78; } #root { position: absolute; inset: 0; width: 100%; height: auto; min-height: 0; overflow: hidden; background: #146E78; } @supports (height: 100dvh) { html, body { height: 100dvh; } } @media (max-width: 767px), (display-mode: standalone) { #mobile-navigation { position: fixed !important; left: 8px !important; right: 8px !important; bottom: 4px !important; width: auto !important; height: 66px !important; margin: 0 !important; -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; touch-action: none !important; overscroll-behavior: contain !important; } #mobile-navigation * { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; } } html.lab-keyboard #root { bottom: auto !important; height: var(--lab-keyboard-height, 100%) !important; } html.lab-keyboard #mobile-navigation { display: none !important; } html.lab-keyboard [data-testid="support-page"] { padding-bottom: 0 !important; }</style>',
   '    <script>(function(){var root=document.documentElement;function keyboardViewport(){if(!root.classList.contains("lab-keyboard"))return;var value=window.visualViewport?window.visualViewport.height:window.innerHeight;root.style.setProperty("--lab-keyboard-height",Math.round(value)+"px")}window.addEventListener("resize",keyboardViewport,{passive:true});if(window.visualViewport){window.visualViewport.addEventListener("resize",keyboardViewport,{passive:true});window.visualViewport.addEventListener("scroll",keyboardViewport,{passive:true})}document.addEventListener("focusin",function(event){if(event.target&&/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)){root.classList.add("lab-keyboard");keyboardViewport()}});document.addEventListener("focusout",function(){setTimeout(function(){if(!document.activeElement||!/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){root.classList.remove("lab-keyboard");root.style.removeProperty("--lab-keyboard-height")}},0)});if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(function(items){items.forEach(function(item){item.unregister()})})}if("caches" in window){caches.keys().then(function(keys){keys.forEach(function(key){caches.delete(key)})})}})()</script>',
 ].join("\n");
 
@@ -66,3 +67,5 @@ if (!html.includes('name="apple-mobile-web-app-capable"')) {
 }
 
 writeFileSync(indexPath, html);
+writeFileSync(resolve(dist,"patient.html"), html.replace(/href="\/manifest(?:-doctor)?\.webmanifest[^\"]*"/, `href="/manifest.webmanifest?v=${version}"`));
+writeFileSync(resolve(dist,"doc.html"), html.replace(/href="\/manifest(?:-doctor)?\.webmanifest[^\"]*"/, `href="/manifest-doctor.webmanifest?v=${version}"`));

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#101A38"/><stop offset=".55" stop-color="#293369"/><stop offset="1" stop-color="#146E78"/></linearGradient>
+    <linearGradient id="artery" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#FF817D"/><stop offset="1" stop-color="#FFB09A"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="grain"><feTurbulence baseFrequency=".8" numOctaves="2" seed="4" type="fractalNoise"/><feColorMatrix values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 .08 0"/></filter>
+  </defs>
+  <rect width="1200" height="700" rx="56" fill="url(#bg)"/>
+  <circle cx="1070" cy="80" r="230" fill="#8B5CF6" opacity=".13"/>
+  <g transform="translate(52 52)">
+    <rect width="650" height="596" rx="38" fill="#FFFFFF0D" stroke="#FFFFFF24"/>
+    <text x="34" y="48" fill="#C9D6FF" font-family="Arial" font-size="19" font-weight="700" letter-spacing="2">СХЕМА СОННОЙ АРТЕРИИ</text>
+    <path d="M318 548C315 446 313 340 314 242C315 184 272 145 218 98" fill="none" stroke="#381D31" stroke-width="93" stroke-linecap="round"/>
+    <path d="M318 548C315 446 313 340 314 242C315 184 272 145 218 98" fill="none" stroke="url(#artery)" stroke-width="69" stroke-linecap="round"/>
+    <path d="M314 243C326 181 377 145 443 91" fill="none" stroke="#381D31" stroke-width="89" stroke-linecap="round"/>
+    <path d="M314 243C326 181 377 145 443 91" fill="none" stroke="url(#artery)" stroke-width="65" stroke-linecap="round"/>
+    <path d="M295 321C298 274 302 247 314 221C328 243 337 274 333 322Z" fill="#FFF1B8" stroke="#F3C95F" stroke-width="5"/>
+    <path d="M314 245C326 219 339 203 362 185" fill="none" stroke="#9A4A4F" stroke-width="18" stroke-linecap="round"/>
+    <path d="M313 548V341" fill="none" stroke="#FFE6E0" stroke-width="24" opacity=".8"/>
+    <text x="368" y="285" fill="#FFFFFF" font-family="Arial" font-size="24" font-weight="700">Атеросклеротическая бляшка</text>
+    <text x="368" y="318" fill="#C9D6E8" font-family="Arial" font-size="19">сужает просвет и меняет поток крови</text>
+    <path d="M360 295L334 283" stroke="#FFFFFF" stroke-width="3"/>
+  </g>
+  <g transform="translate(742 52)">
+    <rect width="406" height="278" rx="34" fill="#0B1224" stroke="#FFFFFF24"/>
+    <rect x="18" y="18" width="370" height="242" rx="24" fill="#121927" filter="url(#grain)" opacity=".95"/>
+    <path d="M198 248C198 202 198 154 202 118C206 84 180 61 151 38M202 119C213 86 244 62 281 34" fill="none" stroke="#E8F4FF" stroke-width="13" stroke-linecap="round" filter="url(#glow)"/>
+    <path d="M199 185C199 160 200 139 202 120" fill="none" stroke="#23304C" stroke-width="8"/>
+    <circle cx="202" cy="121" r="15" fill="none" stroke="#FF6978" stroke-width="4"/>
+    <text x="31" y="50" fill="#BFD0E6" font-family="Arial" font-size="16" font-weight="700">АНГИОГРАФИЯ · СТЕНОЗ</text>
+  </g>
+  <g transform="translate(742 370)">
+    <rect width="406" height="278" rx="34" fill="#F7FAFC" stroke="#FFFFFF50"/>
+    <path d="M201 247C200 204 200 163 204 121C207 86 178 63 145 34M204 122C215 86 249 61 290 32" fill="none" stroke="#23324E" stroke-width="17" stroke-linecap="round"/>
+    <path d="M203 185C202 160 202 141 204 122" fill="none" stroke="#F7FAFC" stroke-width="9"/>
+    <path d="M205 120C220 98 238 81 262 65" fill="none" stroke="#647895" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="204" cy="122" r="16" fill="#FF697822" stroke="#FF6978" stroke-width="4"/>
+    <text x="29" y="50" fill="#263653" font-family="Arial" font-size="16" font-weight="700">КТ-АНГИОГРАФИЯ · БИФУРКАЦИЯ</text>
+  </g>
+</svg>
