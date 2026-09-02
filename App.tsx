@@ -1431,6 +1431,9 @@ function Detail({
   const compact = width < 520;
   const [exporting, setExporting] = useState<"share" | "view" | "print" | null>(null);
   const [pdfURI, setPdfURI] = useState("");
+  useEffect(() => () => {
+    if (pdfURI.startsWith("blob:")) URL.revokeObjectURL(pdfURI);
+  }, [pdfURI]);
   if (!item) return null;
   const active = item;
   const review = active.ai_review?.summary || "";
@@ -1442,9 +1445,7 @@ function Detail({
     return result.uri;
   }
   async function shareWebReport() {
-    const response = await fetch(api.reportURL(active.id));
-    if (!response.ok) throw new Error("Не удалось сформировать PDF");
-    const blob = await response.blob();
+    const blob = await api.reportBlob(active.id);
     const file = new File([blob], `analysis-${active.id}.pdf`, {
       type: "application/pdf",
     });
@@ -1475,12 +1476,20 @@ function Detail({
     setExporting(kind);
     try {
       if (Platform.OS === "web") {
-        if (kind === "view") {
-          setPdfURI(api.reportURL(active.id));
-        } else if (kind === "print") {
-          await Linking.openURL(api.reportURL(active.id));
-        } else {
+        if (kind === "share") {
           await shareWebReport();
+        } else {
+          const blob = await api.reportBlob(active.id);
+          const href = URL.createObjectURL(blob);
+          if (kind === "view") {
+          setPdfURI((current) => {
+            if (current.startsWith("blob:")) URL.revokeObjectURL(current);
+            return href;
+          });
+          } else {
+            await Linking.openURL(href);
+            setTimeout(() => URL.revokeObjectURL(href), 60_000);
+          }
         }
         return;
       }

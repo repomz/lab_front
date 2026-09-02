@@ -26,6 +26,21 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!res.ok) throw new Error(body.error || "Не удалось выполнить запрос");
   return body as T;
 }
+async function download(path: string): Promise<Blob> {
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { headers });
+  } catch {
+    throw new Error("Нет связи с сервером. Проверьте интернет и повторите попытку.");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "Не удалось загрузить файл");
+  }
+  return res.blob();
+}
 export const api = {
   register: (v: {
     email: string;
@@ -143,6 +158,7 @@ export const api = {
     const form=new FormData(); if(Platform.OS==="web"){let file=asset.file;if(!file)file=await(await fetch(asset.uri)).blob();form.append("file",file,asset.name)}else{form.append("file",{uri:asset.uri,name:asset.name,type:asset.mimeType||"image/jpeg"} as unknown as Blob)}
     return request<{url:string}>("/articles/media",{method:"POST",body:form});
   },
+  reportBlob: (id: string) => download(`/analyses/${id}/report.pdf`),
   fileURL: (id: string) =>
     `${API_URL}/analyses/${id}/file?access_token=${encodeURIComponent(token)}`,
   reportURL: (id: string) =>
