@@ -335,6 +335,10 @@ function ageFromBirthDate(value: string) {
   return age >= 0 && age <= 120 ? age : 0;
 }
 
+function AuthBackdrop() {
+  return <LinearGradient pointerEvents="none" colors={["#17214B", "#433A88", "#146E78"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.fullBleedBackdrop}><View style={s.backdropOrbTop}/><View style={s.backdropOrbBottom}/></LinearGradient>;
+}
+
 function Auth({ portal, onDone }: { portal: Portal; onDone: (u: User, t: string) => void }) {
   const entranceOpacity = useRef(new Animated.Value(0)).current;
   const initialPatientLogin = useMemo(() => {
@@ -429,7 +433,7 @@ function Auth({ portal, onDone }: { portal: Portal; onDone: (u: User, t: string)
   }
   return (
     <View style={s.authOuter}>
-      <Image source={require("./assets/auth-background-v2.png")} resizeMode="cover" style={s.fullBleedImage}/>
+      <AuthBackdrop/>
       <SystemChrome dark background="#17214B" canvas="#146E78"/>
       <Animated.View style={[s.authContent,{opacity:entranceOpacity}]}>
       <SafeAreaView edges={["top","right","bottom","left"]} style={s.authScreen}>
@@ -1954,7 +1958,7 @@ function Banner({ text, onClose }: { text: string; onClose: () => void }) {
 function Loading({ opacity }: { opacity: Animated.Value }) {
   return (
     <View style={s.loading}>
-      <Image source={require("./assets/auth-background-v2.png")} resizeMode="cover" style={s.fullBleedImage}/>
+      <AuthBackdrop/>
       <SystemChrome dark background="#17214B" canvas="#146E78"/>
       <Animated.View style={[s.loadingContent,{opacity}]}><View style={s.loadingShield}><Ionicons name="shield-checkmark-outline" size={108} color="#F4FFFE"/></View><Text style={s.loadingTitle}>Ваше здоровье теперь под контролем</Text></Animated.View>
     </View>
@@ -2292,6 +2296,9 @@ const s = StyleSheet.create({
   },
   authOuter: { flex: 1, backgroundColor: "#17214B", overflow: "hidden" },
   fullBleedImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+  fullBleedBackdrop: { ...StyleSheet.absoluteFillObject, overflow: "hidden" },
+  backdropOrbTop: { position: "absolute", width: 330, height: 330, borderRadius: 165, right: -105, top: -120, backgroundColor: "#9272FA24" },
+  backdropOrbBottom: { position: "absolute", width: 300, height: 300, borderRadius: 150, left: -145, bottom: -130, backgroundColor: "#39D5C423" },
   authContent: { flex: 1, width: "100%" },
   authScreen: { flex: 1, width: "100%", overflow: "hidden", backgroundColor: "transparent" },
   authWelcome: { flex: 1, width: "100%", maxWidth: 620, alignSelf: "center", justifyContent: "space-between", paddingHorizontal: 24, paddingTop: 150, paddingBottom: 38 },
