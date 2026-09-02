@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Linking,
   Modal as NativeModal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView as NativeScrollView,
@@ -29,11 +30,14 @@ import { api, API_URL, restoreToken, setToken } from "./src/api";
 import { ActivitySurvey, AIChat, Analysis, ClinicalAssistResult, Consultation, Guide, NutritionSurvey, PatientNote, Role, ScheduleSlot, SupportMessage, User } from "./src/types";
 import { colors, shadow } from "./src/theme";
 
-type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "ai" | "guides" | "profile";
+type Tab = "home" | "analyses" | "patients" | "consultations" | "doctors" | "schedule" | "ai" | "guides" | "profile";
+type Portal = "patient" | "doctor";
 type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.6";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.9.7";
 const LAST_LOGIN_KEY = "lab.last-login";
 const LAST_NAME_KEY = "lab.last-name";
+const PATIENT_LOGIN_KEY = "lab.patient-login";
+const PATIENT_NAME_KEY = "lab.patient-name";
 const nutritionImages = [require("./assets/nutrition/young.jpg"),require("./assets/nutrition/middle.jpg"),require("./assets/nutrition/senior.jpg")];
 type AgeBand = "under20" | "20s" | "30s" | "40s" | "50s" | "60s" | "70s" | "80s";
 const activityImages: Record<AgeBand, number[]> = {
@@ -83,6 +87,7 @@ const icon: Record<Tab, keyof typeof Ionicons.glyphMap> = {
   patients: "people-outline",
   consultations: "chatbubbles-outline",
   doctors: "calendar-outline",
+  schedule: "time-outline",
   ai: "sparkles-outline",
   guides: "library-outline",
   profile: "person-outline",
@@ -93,19 +98,26 @@ const labels: Record<Tab, string> = {
   patients: "Пациенты",
   consultations: "Визиты",
   doctors: "Запись",
+  schedule: "Время",
   ai: "AI",
   guides: "Guides",
   profile: "Профиль",
 };
-const tabsFor = (role: Role): Tab[] => role === "doctor"
-  ? ["home", "patients", "ai", "guides", "profile"]
+const tabsFor = (role: Role, desktop = false): Tab[] => role === "doctor"
+  ? ["home", "patients", "schedule", "ai", "guides", ...(desktop ? ["profile" as Tab] : [])]
   : ["home", "analyses", "consultations", "doctors", "profile"];
+
+function portalFromLocation(): Portal {
+  if (Platform.OS === "web" && typeof window !== "undefined" && window.location.pathname.startsWith("/doc")) return "doctor";
+  return "patient";
+}
 
 export default function App() {
   return <SafeAreaProvider><AppContent /></SafeAreaProvider>;
 }
 
 function AppContent() {
+  const portal = useMemo(portalFromLocation, []);
   const [boot, setBoot] = useState(true);
   const splashOpacity = useRef(new Animated.Value(1)).current;
   const [user, setUser] = useState<User | null>(null);
@@ -122,12 +134,15 @@ function AppContent() {
   const compact = width < 640;
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
+    if (window.location.pathname === "/") window.history.replaceState({}, "", "/patient");
     const root = document.getElementById("root");
+    const manifest = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
+    if (manifest) manifest.href = portal === "doctor" ? "/manifest-doctor.webmanifest" : "/manifest.webmanifest";
     const viewport = document.querySelector('meta[name="viewport"]') as HTMLMetaElement | null;
     if (viewport) viewport.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
-    Object.assign(document.documentElement.style, { width: "100%", height: "100%", overflow: "hidden", overscrollBehavior: "none" });
-    Object.assign(document.body.style, { width: "100%", height: "100%", margin: "0", overflow: "hidden", position: "fixed", inset: "0", overscrollBehavior: "none" });
-    if (root) Object.assign(root.style, { position: "fixed", inset: "0", width: "auto", height: "auto", minHeight: "0", overflow: "hidden" });
+    Object.assign(document.documentElement.style, { width: "100%", height: "100dvh", minHeight: "100dvh", overflow: "hidden", overscrollBehavior: "none", background: colors.paper });
+    Object.assign(document.body.style, { width: "100%", height: "100dvh", minHeight: "100dvh", margin: "0", overflow: "hidden", overscrollBehavior: "none", background: colors.paper });
+    if (root) Object.assign(root.style, { width: "100%", height: "100dvh", minHeight: "100dvh", overflow: "hidden", background: colors.paper });
   }, []);
   async function refresh(u = user) {
     if (!u) return;
@@ -167,8 +182,12 @@ function AppContent() {
       try {
         if (await restoreToken()) {
           const u = await api.me();
-          setUser(u);
-          await refresh(u);
+          if (u.role === portal) {
+            setUser(u);
+            await refresh(u);
+          } else {
+            await setToken("");
+          }
         }
       } catch {
         await setToken("");
@@ -182,6 +201,7 @@ function AppContent() {
   if (!user)
     return (
       <Auth
+        portal={portal}
         onDone={async (u, t) => {
           await setToken(t);
           setUser(u);
@@ -229,6 +249,8 @@ function AppContent() {
       />
     ) : tab === "doctors" ? (
       <DoctorsScreen user={user} onRefresh={() => refresh()} initialDoctorID={focusDoctorID} onTargetHandled={() => setFocusDoctorID("")} onTargetBack={() => setTab("home")} />
+    ) : tab === "schedule" ? (
+      <DoctorSchedule user={user} compact={compact} />
     ) : tab === "ai" ? (
       <AIWorkspace />
     ) : tab === "guides" ? (
@@ -246,7 +268,7 @@ function AppContent() {
   const chromeColors: readonly [string, string, ...string[]] = immersiveHeader
     ? ["#17214B", "#3C3A86", "#147D83"]
     : [screenBackground, screenBackground];
-  const chromeBackground = immersiveHeader ? "#17214B" : screenBackground;
+  const chromeBackground = screenBackground;
   return (
     <View style={s.safe}>
       {immersiveHeader && <LinearGradient pointerEvents="none" colors={chromeColors} start={{x:0,y:0}} end={{x:1,y:1}} style={s.immersiveBackdrop}/>}
@@ -309,14 +331,26 @@ function ageFromBirthDate(value: string) {
   return age >= 0 && age <= 120 ? age : 0;
 }
 
-function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
+function Auth({ portal, onDone }: { portal: Portal; onDone: (u: User, t: string) => void }) {
   const entranceOpacity = useRef(new Animated.Value(0)).current;
-  const [remembered, setRemembered] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "");
-  const [rememberedName, setRememberedName] = useState(() => Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_NAME_KEY) || "" : "");
+  const initialPatientLogin = useMemo(() => {
+    if (Platform.OS !== "web" || typeof localStorage === "undefined") return "";
+    const saved = localStorage.getItem(PATIENT_LOGIN_KEY) || "";
+    const legacy = localStorage.getItem(LAST_LOGIN_KEY) || "";
+    return saved || (legacy.startsWith("user-") ? legacy : "");
+  }, []);
+  const initialPatientName = useMemo(() => {
+    if (Platform.OS !== "web" || typeof localStorage === "undefined") return "";
+    return localStorage.getItem(PATIENT_NAME_KEY) || (initialPatientLogin ? localStorage.getItem(LAST_NAME_KEY) || "" : "");
+  }, [initialPatientLogin]);
+  const initialLogin = portal === "doctor" ? "marat" : initialPatientLogin;
+  const initialName = portal === "doctor" ? "Марат" : initialPatientName;
+  const [remembered, setRemembered] = useState(initialLogin);
+  const [rememberedName, setRememberedName] = useState(initialName);
   const [phase, setPhase] = useState<"welcome" | "pin" | "register" | "about">("welcome");
   const [registerStep, setRegisterStep] = useState<"profile" | "pin">("profile");
   const [form, setForm] = useState({
-    email: Platform.OS === "web" && typeof localStorage !== "undefined" ? localStorage.getItem(LAST_LOGIN_KEY) || "" : "",
+    email: initialLogin,
     pin: "",
     fullName: "",
     specialization: "",
@@ -335,8 +369,12 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
   }, [entranceOpacity]);
   function remember(user: User) {
     if (Platform.OS !== "web" || typeof localStorage === "undefined") return;
-    localStorage.setItem(LAST_LOGIN_KEY, user.email);
-    localStorage.setItem(LAST_NAME_KEY, user.role === "doctor" ? "Марат" : firstName(user.full_name));
+    if (user.role === "patient") {
+      localStorage.setItem(PATIENT_LOGIN_KEY, user.email);
+      localStorage.setItem(PATIENT_NAME_KEY, firstName(user.full_name));
+      localStorage.setItem(LAST_LOGIN_KEY, user.email);
+      localStorage.setItem(LAST_NAME_KEY, firstName(user.full_name));
+    }
   }
   async function login(pin: string) {
     if (busy || !form.email.trim() || !/^\d{4}$/.test(pin)) return;
@@ -379,10 +417,6 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
     setError("");
   }
   function switchUser() {
-    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
-      localStorage.removeItem(LAST_LOGIN_KEY);
-      localStorage.removeItem(LAST_NAME_KEY);
-    }
     setRemembered("");
     setRememberedName("");
     setForm((current) => ({ ...current, email: "", pin: "" }));
@@ -390,25 +424,31 @@ function Auth({ onDone }: { onDone: (u: User, t: string) => void }) {
     setError("");
   }
   return (
-    <Animated.View style={[s.authOuter,{opacity:entranceOpacity}]}>
+    <View style={s.authOuter}>
       <Image source={require("./assets/auth-background-v2.png")} resizeMode="cover" style={s.fullBleedImage}/>
       <SystemChrome dark background="#17214B" canvas="#17214B"/>
+      <Animated.View style={[s.authContent,{opacity:entranceOpacity}]}>
       <SafeAreaView edges={["top","right","bottom","left"]} style={s.authScreen}>
         {phase === "welcome" && <View style={s.authWelcome}>
           <View style={s.authWelcomeCopy}><Text style={s.authWelcomeTitle}>{rememberedName ? `Здравствуйте, ${rememberedName}` : "Добро пожаловать"}</Text><Text style={s.authWelcomeSlogan}>{remembered ? "Ваше здоровье под контролем" : "Все результаты здоровья — в одном месте"}</Text></View>
-          <View style={s.authWelcomeActions}>{remembered ? <><Pressable accessibilityRole="button" style={({pressed})=>[s.authLoginGlass,pressed&&{transform:[{scale:.98}],opacity:.7}]} onPress={()=>{setPhase("pin");setForm(current=>({...current,pin:""}));}}><Text style={s.authLoginGlassText}>Войти</Text></Pressable><Pressable accessibilityRole="button" style={({pressed})=>[s.authSwitchUser,pressed&&{opacity:.6}]} onPress={switchUser}><Text style={s.authSwitchUserText}>Сменить пользователя</Text></Pressable></> : <><Button label="Зарегистрироваться" icon="person-add-outline" onPress={()=>{setRegisterStep("profile");setPhase("register");}}/><Pressable accessibilityRole="button" style={s.authSecondaryButton} onPress={()=>setPhase("about")}><Text style={s.authSecondaryText}>О приложении</Text></Pressable><Pressable accessibilityRole="button" style={s.authExistingButton} onPress={()=>{setForm(current=>({...current,email:"marat",pin:""}));setRememberedName("Марат");setPhase("pin");}}><Text style={s.authExistingText}>Вход для врача</Text></Pressable></>}</View>
+          <View style={s.authWelcomeActions}>{remembered ? <><AuthGlassAction label="Войти" onPress={()=>{setPhase("pin");setForm(current=>({...current,email:remembered,pin:""}));}}/>{portal === "patient"&&<Pressable accessibilityRole="button" style={({pressed})=>[s.authSwitchUser,pressed&&{opacity:.6}]} onPress={switchUser}><Text style={s.authSwitchUserText}>Сменить пользователя</Text></Pressable>}</> : portal === "doctor" ? <AuthGlassAction label="Войти" onPress={()=>{setForm(current=>({...current,email:"marat",pin:""}));setRemembered("marat");setRememberedName("Марат");setPhase("pin");}}/> : <><AuthGlassAction label="Зарегистрироваться" icon="person-add-outline" onPress={()=>{setRegisterStep("profile");setPhase("register");}}/>{initialPatientLogin&&<AuthGlassAction label="Войти" onPress={()=>{setRemembered(initialPatientLogin);setRememberedName(initialPatientName);setForm(current=>({...current,email:initialPatientLogin,pin:""}));setPhase("pin");}}/>}<Pressable accessibilityRole="button" style={s.authSecondaryButton} onPress={()=>setPhase("about")}><Text style={s.authSecondaryText}>О приложении</Text></Pressable></>}</View>
         </View>}
         {phase === "pin" && <View style={s.authPINScreen}>
           <PinPad value={form.pin} dark onChange={changePIN} loginMode onLogout={forget}/>
           {busy&&<ActivityIndicator color={colors.white}/>} {error?<Text style={s.authPINError}>{error}</Text>:null}
         </View>}
-        {phase === "about" && <View style={s.authAbout}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Lab HEALTH</Text><Text style={s.authAboutText}>Собирает лабораторные исследования в одном месте, выделяет показатели и помогает следить за их динамикой. Автоматическая оценка не заменяет врача.</Text></View>}
-        {phase === "register" && registerStep === "profile" && <ScrollView style={s.authRegisterScroll} contentContainerStyle={s.authRegisterBody} keyboardShouldPersistTaps="handled"><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Регистрация</Text><Text style={s.authRegisterHint}>Создайте профиль пользователя</Text><Field label="Имя" dark value={form.fullName} onChangeText={(fullName:string)=>setForm(current=>({...current,fullName}))}/><Field label="Дата рождения" dark keyboardType="number-pad" placeholder="ДД.ММ.ГГГГ" maxLength={10} value={form.birthDate} onChangeText={(birthDate:string)=>setForm(current=>({...current,birthDate:formatBirthDate(birthDate)}))}/><View style={s.registrationVitals}><Field label="Рост, см" dark keyboardType="decimal-pad" value={form.heightCM} onChangeText={(heightCM:string)=>setForm(current=>({...current,heightCM}))}/><Field label="Вес, кг" dark keyboardType="decimal-pad" value={form.weightKG} onChangeText={(weightKG:string)=>setForm(current=>({...current,weightKG}))}/></View><Button label="Продолжить" icon="arrow-forward" disabled={!profileReady} onPress={()=>setRegisterStep("pin")}/></ScrollView>}
-        {phase === "register" && registerStep === "pin" && <View style={s.authRegisterPIN}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setRegisterStep("profile")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><View><Text style={s.authWelcomeTitle}>Создайте PIN</Text><Text style={s.authRegisterHint}>Четыре цифры для быстрого входа</Text></View><PinPad value={form.pin} dark reveal onChange={changePIN}/>{error?<Text style={s.authPINError}>{error}</Text>:null}<Button label={busy?"Создаём…":"Зарегистрироваться"} disabled={!registrationReady||busy} onPress={()=>void register()}/></View>}
-        <Text style={s.authVersionCompact}>LAB HEALTH · v{APP_VERSION}</Text>
+        {phase === "about" && <View style={s.authAbout}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Lab</Text><Text style={s.authAboutText}>Собирает лабораторные исследования в одном месте, выделяет показатели и помогает следить за их динамикой. Автоматическая оценка не заменяет врача.</Text></View>}
+        {phase === "register" && registerStep === "profile" && <ScrollView style={s.authRegisterScroll} contentContainerStyle={s.authRegisterBody} keyboardShouldPersistTaps="handled"><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Регистрация</Text><Text style={s.authRegisterHint}>Создайте профиль пользователя</Text><Field label="Имя" dark value={form.fullName} onChangeText={(fullName:string)=>setForm(current=>({...current,fullName}))}/><Field label="Дата рождения" dark keyboardType="number-pad" placeholder="ДД.ММ.ГГГГ" maxLength={10} value={form.birthDate} onChangeText={(birthDate:string)=>setForm(current=>({...current,birthDate:formatBirthDate(birthDate)}))}/><View style={s.registrationVitals}><Field label="Рост, см" dark keyboardType="decimal-pad" value={form.heightCM} onChangeText={(heightCM:string)=>setForm(current=>({...current,heightCM}))}/><Field label="Вес, кг" dark keyboardType="decimal-pad" value={form.weightKG} onChangeText={(weightKG:string)=>setForm(current=>({...current,weightKG}))}/></View><AuthGlassAction label="Продолжить" icon="arrow-forward" disabled={!profileReady} onPress={()=>setRegisterStep("pin")}/></ScrollView>}
+        {phase === "register" && registerStep === "pin" && <View style={s.authRegisterPIN}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setRegisterStep("profile")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><View><Text style={s.authWelcomeTitle}>Создайте PIN</Text><Text style={s.authRegisterHint}>Четыре цифры для быстрого входа</Text></View><PinPad value={form.pin} dark reveal onChange={changePIN}/>{error?<Text style={s.authPINError}>{error}</Text>:null}<AuthGlassAction label={busy?"Создаём…":"Зарегистрироваться"} disabled={!registrationReady||busy} onPress={()=>void register()}/></View>}
+        <Text style={s.authVersionCompact}>Lab · v{APP_VERSION}</Text>
       </SafeAreaView>
-    </Animated.View>
+      </Animated.View>
+    </View>
   );
+}
+
+function AuthGlassAction({label,onPress,icon,disabled}:{label:string;onPress:()=>void;icon?:keyof typeof Ionicons.glyphMap;disabled?:boolean}){
+  return <Pressable accessibilityRole="button" disabled={disabled} style={({pressed})=>[s.authLoginGlass,disabled&&{opacity:.38},pressed&&!disabled&&{transform:[{scale:.98}],opacity:.72}]} onPress={onPress}>{icon&&<Ionicons name={icon} size={19} color={colors.white}/>}<Text style={s.authLoginGlassText}>{label}</Text></Pressable>;
 }
 
 function PinPad({ value, onChange, dark, loginMode=false, reveal=false, onLogout }: { value: string; onChange: (value: string) => void; dark?: boolean; loginMode?: boolean; reveal?: boolean; onLogout?:()=>void }) {
@@ -450,11 +490,11 @@ function Home({
   const upcoming = consultations.filter((item) => item.service_type === "appointment" && item.appointment_at && new Date(item.appointment_at) > new Date()).sort((a, b) => (a.appointment_at || "").localeCompare(b.appointment_at || ""))[0];
   const answered = consultations.find((item) => item.status === "answered" && item.reply);
   if (user.role === "doctor") {
-    return <DoctorSchedule user={user} compact={compact} />;
+    return <DoctorHome consultations={consultations} compact={compact} onPatients={() => onTab("patients")} onSchedule={() => onTab("schedule")} />;
   }
   return (
     <View style={[s.patientHome, compact && s.patientHomeCompact]}>
-      <View style={[s.patientWelcome, compact && s.patientWelcomeCompact]}>
+      <LinearGradient colors={["#17214B", "#403B87", "#167C82"]} start={{x:0,y:0}} end={{x:1,y:1}} style={[s.patientWelcome, compact && s.patientWelcomeCompact]}>
         <View style={s.welcomeIdentity}>
           <Pressable accessibilityRole="button" accessibilityLabel="Открыть профиль" hitSlop={10} onPress={() => setProfileOpen(true)} style={s.profileGlyph}>
             <Ionicons name="person-outline" size={30} color={colors.white} />
@@ -474,7 +514,7 @@ function Home({
             {answered && <Pressable onPress={() => onOpenVisit(answered)} style={s.homeReminder}><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.aqua}/><View style={{flex:1}}><Text style={s.homeReminderLabel}>Ответ врача</Text><Text numberOfLines={1} style={s.homeReminderText}>Открыть переписку</Text></View></Pressable>}
           </View>}
         </View>
-      </View>
+      </LinearGradient>
       <View style={[s.homeDiscovery, compact && s.homeDiscoveryCompact]}>
         <WellnessPhotoCard ageBand={ageGroup} onPress={() => setWellness("activity")} />
         <NutritionMediaCard ageTone={ageTone} onPress={() => setWellness("nutrition")} />
@@ -483,6 +523,29 @@ function Home({
       <PatientProfileModal visible={profileOpen} user={user} onUpdated={onUser} onClose={() => setProfileOpen(false)} />
     </View>
   );
+}
+
+function DoctorHome({ consultations, compact, onPatients, onSchedule }: { consultations: Consultation[]; compact: boolean; onPatients: () => void; onSchedule: () => void }) {
+  const now = new Date();
+  const appointments = consultations
+    .filter((item) => item.service_type === "appointment" && item.appointment_at && new Date(item.appointment_at) >= now)
+    .sort((a,b) => (a.appointment_at || "").localeCompare(b.appointment_at || ""));
+  const requests = consultations.filter((item) => item.source !== "ai" && item.service_type !== "appointment" && item.status !== "answered");
+  return <ScrollView contentContainerStyle={[s.doctorHome,compact&&s.scrollCompact]}>
+    <LinearGradient colors={["#17214B", "#403B87", "#167C82"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.doctorHomeWelcome}><Text style={s.welcomeOver}>ГЛАВНАЯ</Text><Text style={s.doctorHomeGreeting}>Здравствуйте, Марат</Text><Text style={s.doctorHomeLead}>Новые записи и обращения пациентов собраны здесь.</Text></LinearGradient>
+    <View style={s.doctorNoticeSummary}>
+      <Pressable onPress={onSchedule} style={s.doctorNoticeCount}><Ionicons name="calendar-outline" size={24} color={colors.violet}/><Text style={s.doctorNoticeNumber}>{appointments.length}</Text><Text style={s.doctorNoticeLabel}>записей</Text></Pressable>
+      <Pressable onPress={onPatients} style={s.doctorNoticeCount}><Ionicons name="chatbubbles-outline" size={24} color={colors.aqua}/><Text style={s.doctorNoticeNumber}>{requests.length}</Text><Text style={s.doctorNoticeLabel}>обращений</Text></Pressable>
+    </View>
+    <View style={s.doctorNoticeSection}><View style={s.rowBetween}><Text style={s.sectionTitle}>Ближайшие записи</Text><Pressable onPress={onSchedule}><Text style={s.link}>Время</Text></Pressable></View>
+      {appointments.slice(0,4).map((item)=><Pressable key={item.id} onPress={onPatients} style={s.doctorNoticeRow}><View style={s.doctorNoticeIcon}><Ionicons name="calendar" size={19} color={colors.violet}/></View><View style={{flex:1}}><Text style={s.analysisTitle}>{item.title || "Приём пациента"}</Text><Text style={s.analysisMeta}>{new Date(item.appointment_at!).toLocaleString("ru-RU",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</Text></View></Pressable>)}
+      {!appointments.length&&<Text style={s.cardHint}>Предстоящих записей пока нет.</Text>}
+    </View>
+    <View style={s.doctorNoticeSection}><View style={s.rowBetween}><Text style={s.sectionTitle}>Запросы консультаций</Text><Pressable onPress={onPatients}><Text style={s.link}>Пациенты</Text></Pressable></View>
+      {requests.slice(0,4).map((item)=><Pressable key={item.id} onPress={onPatients} style={s.doctorNoticeRow}><View style={[s.doctorNoticeIcon,{backgroundColor:colors.aquaSoft}]}><Ionicons name="chatbubble-ellipses" size={19} color={colors.aqua}/></View><View style={{flex:1}}><Text style={s.analysisTitle}>{item.title || "Запрос консультации"}</Text><Text numberOfLines={1} style={s.analysisMeta}>{item.question || "Новый запрос"}</Text></View></Pressable>)}
+      {!requests.length&&<Text style={s.cardHint}>Новых запросов пока нет.</Text>}
+    </View>
+  </ScrollView>;
 }
 
 function PatientProfileModal({ visible, user, onUpdated, onClose }: { visible: boolean; user: User; onUpdated: (user: User) => void; onClose: () => void }) {
@@ -817,12 +880,13 @@ function DoctorSchedule({ user, compact }: { user: User; compact: boolean }) {
   const from=week.toISOString(), to=addDays(week,7).toISOString();
   const load=async()=>{try{const list=await api.schedule(user.id,from,to);setSlots(list);setSelected(new Set(list.filter(x=>x.status==="available").map(x=>slotKey(x.start_at))))}catch(e){Alert.alert("Расписание недоступно",e instanceof Error?e.message:"Ошибка")}};
   useEffect(()=>{void load()},[from,to]);
-  const rows=Array.from({length:24},(_,i)=>{const minutes=8*60+i*30;return {h:Math.floor(minutes/60),m:minutes%60}});
+  const rows=Array.from({length:26},(_,i)=>{const minutes=8*60+i*30;return {h:Math.floor(minutes/60),m:minutes%60}});
+  const monthStart=new Date(week.getFullYear(),week.getMonth(),1);const monthCalendarStart=weekStart(monthStart);const monthDays=Array.from({length:42},(_,i)=>addDays(monthCalendarStart,i));
   function toggle(d:number,h:number,m:number){if(!edit)return;const value=addDays(week,d);value.setHours(h,m,0,0);if(value<=new Date())return;const key=slotKey(value);if(slots.some(x=>slotKey(x.start_at)===key&&x.status==="booked"))return;setSelected(current=>{const next=new Set(current);next.has(key)?next.delete(key):next.add(key);return next})}
-  function beginEdit(){if(addDays(week,7).getTime()-Date.now()<48*60*60*1000)setWeek(addDays(week,7));setEdit(true)}
   async function save(){setBusy(true);try{await api.saveSchedule(from,to,[...selected]);setEdit(false);await load()}catch(e){Alert.alert("Не удалось сохранить",e instanceof Error?e.message:"Ошибка")}finally{setBusy(false)}}
-  return <View style={[s.schedulePage, compact && s.schedulePageCompact]}><LinearGradient colors={["#17214B","#3C3A86","#147D83"]} style={[s.doctorWelcome,compact&&s.doctorWelcomeCompact]}><View><Text style={s.welcomeOver}>РАСПИСАНИЕ</Text><Text style={s.doctorWelcomeTitle}>Здравствуйте, Марат</Text></View><Pressable style={s.scheduleEdit} onPress={()=>edit?void save():beginEdit()}><Ionicons name={edit?"checkmark":"create-outline"} size={19} color={colors.white}/><Text style={s.scheduleEditText}>{busy?"Сохраняем…":edit?"Готово":"Изменить"}</Text></Pressable></LinearGradient>
-    <View style={s.weekToolbar}><Pressable style={s.iconButton} onPress={()=>setWeek(addDays(week,-7))}><Ionicons name="chevron-back" size={22}/></Pressable><Pressable onPress={()=>setWeek(weekStart())}><Text style={s.weekTitle}>{week.toLocaleDateString("ru-RU",{day:"numeric",month:"short"})} — {addDays(week,6).toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}</Text></Pressable><Pressable style={s.iconButton} onPress={()=>setWeek(addDays(week,7))}><Ionicons name="chevron-forward" size={22}/></Pressable></View>
+  return <View style={[s.schedulePage, compact && s.schedulePageCompact]}><View style={s.scheduleHeading}><View><Text style={s.scheduleTitle}>Время</Text><Text style={s.scheduleSubtitle}>Доступные часы и записи пациентов</Text></View><Pressable style={s.scheduleEditLight} onPress={()=>edit?void save():setEdit(true)}><Ionicons name={edit?"checkmark":"create-outline"} size={19} color={colors.brand}/><Text style={s.scheduleEditLightText}>{busy?"Сохраняем…":edit?"Готово":"Править"}</Text></Pressable></View>
+    {!compact&&<View style={s.monthOverview}><View style={s.monthOverviewHead}><Text style={s.monthOverviewTitle}>{monthStart.toLocaleDateString("ru-RU",{month:"long",year:"numeric"})}</Text><Pressable onPress={()=>setWeek(weekStart())}><Text style={s.link}>Сегодня</Text></Pressable></View><View style={s.monthWeekNames}>{weekDays.map(label=><Text key={label} style={s.monthWeekName}>{label}</Text>)}</View><View style={s.monthGrid}>{monthDays.map(day=>{const current=day.getMonth()===monthStart.getMonth();const selectedWeek=day>=week&&day<addDays(week,7);return <Pressable key={day.toISOString()} onPress={()=>setWeek(weekStart(day))} style={[s.monthDay,selectedWeek&&s.monthDaySelected]}><Text style={[s.monthDayText,!current&&s.monthDayMuted,selectedWeek&&s.monthDayTextSelected]}>{day.getDate()}</Text></Pressable>})}</View></View>}
+    <View style={s.weekToolbar}><Pressable style={s.scheduleArrow} onPress={()=>setWeek(addDays(week,-7))}><Ionicons name="chevron-back" size={25} color={colors.ink}/></Pressable><Pressable onPress={()=>setWeek(weekStart())}><Text style={s.weekTitle}>{week.toLocaleDateString("ru-RU",{day:"numeric",month:"short"})} — {addDays(week,6).toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}</Text></Pressable><Pressable style={s.scheduleArrow} onPress={()=>setWeek(addDays(week,7))}><Ionicons name="chevron-forward" size={25} color={colors.ink}/></Pressable></View>
     {edit&&<View style={s.editHint}><Ionicons name="information-circle-outline" size={20} color={colors.violet}/><Text style={s.aiDisclaimer}>Выберите будущие ячейки. Прошедшее время недоступно.</Text></View>}
     <ScrollView horizontal style={s.calendarHorizontal} contentContainerStyle={{minWidth:760}}><View><View style={s.calendarHeader}><View style={s.timeColumn}/>{weekDays.map((label,i)=><View key={label} style={s.dayHeader}><Text style={s.dayName}>{label}</Text><Text style={s.dayNumber}>{addDays(week,i).getDate()}</Text></View>)}</View><ScrollView style={s.calendarVertical} nestedScrollEnabled>{rows.map(({h,m})=><View key={`${h}-${m}`} style={s.calendarRow}><View style={s.timeColumn}><Text style={s.timeText}>{String(h).padStart(2,"0")}:{String(m).padStart(2,"0")}</Text></View>{weekDays.map((_,d)=>{const value=addDays(week,d);value.setHours(h,m,0,0);const past=value<=new Date();const key=slotKey(value);const booked=slots.find(x=>slotKey(x.start_at)===key&&x.status==="booked");const available=selected.has(key)&&!past;return <Pressable key={d} disabled={past} onPress={()=>toggle(d,h,m)} style={[s.calendarCell,past&&s.pastCell,available&&s.availableCell,booked&&s.bookedCell]}><Text numberOfLines={2} style={[s.cellText,(available||booked)&&{color:colors.white}]}>{booked?(booked.patient_name||"Пациент"):available?"Доступно":""}</Text></Pressable>})}</View>)}</ScrollView></View></ScrollView>
   </View>
@@ -961,7 +1025,7 @@ function ConsentControls({ personal, medical, onPersonal, onMedical }: { persona
     <Pressable accessibilityRole="checkbox" accessibilityLabel={`Отметить: ${label}`} accessibilityState={{ checked }} hitSlop={8} onPress={() => onChange(!checked)} style={[s.consentBox, checked && s.consentBoxChecked]}>{checked && <Ionicons name="checkmark" size={16} color={colors.white}/>}</Pressable>
     <Pressable accessibilityRole="button" onPress={() => setLegal(kind)} style={s.consentTextButton}><Text style={s.consentLabel}>{label}</Text><Text style={s.consentOpen}>Открыть полный текст</Text></Pressable>
   </View>;
-  const personalText = "Настоящим я свободно, своей волей и в своём интересе даю оператору приложения Lab Health согласие на обработку моих персональных данных в соответствии с Федеральным законом № 152-ФЗ «О персональных данных».\n\nПеречень данных: фамилия, имя и отчество (если указаны), возраст, контактные и регистрационные данные, сведения профиля, история обращений, записи на приём и технические сведения, необходимые для работы учётной записи.\n\nЦели обработки: регистрация и идентификация пользователя, организация записи и консультаций, отображение информации выбранному пользователем врачу, обеспечение безопасности и исполнение запросов пользователя.\n\nРазрешённые действия: сбор, запись, систематизация, накопление, хранение, уточнение, извлечение, использование, предоставление выбранному врачу, блокирование и удаление. Обработка может выполняться с использованием средств автоматизации.\n\nСогласие действует до достижения указанных целей либо до его отзыва. Я вправе отозвать согласие обращением к оператору. Отзыв не отменяет обработку, допустимую или обязательную по закону. Я подтверждаю, что согласие является конкретным, предметным, информированным, сознательным и однозначным.";
+  const personalText = "Настоящим я свободно, своей волей и в своём интересе даю оператору приложения Lab согласие на обработку моих персональных данных в соответствии с Федеральным законом № 152-ФЗ «О персональных данных».\n\nПеречень данных: фамилия, имя и отчество (если указаны), возраст, контактные и регистрационные данные, сведения профиля, история обращений, записи на приём и технические сведения, необходимые для работы учётной записи.\n\nЦели обработки: регистрация и идентификация пользователя, организация записи и консультаций, отображение информации выбранному пользователем врачу, обеспечение безопасности и исполнение запросов пользователя.\n\nРазрешённые действия: сбор, запись, систематизация, накопление, хранение, уточнение, извлечение, использование, предоставление выбранному врачу, блокирование и удаление. Обработка может выполняться с использованием средств автоматизации.\n\nСогласие действует до достижения указанных целей либо до его отзыва. Я вправе отозвать согласие обращением к оператору. Отзыв не отменяет обработку, допустимую или обязательную по закону. Я подтверждаю, что согласие является конкретным, предметным, информированным, сознательным и однозначным.";
   const medicalText = "Настоящим я даю согласие на предоставление выбранному мною врачу доступа к сведениям о состоянии здоровья, составляющим врачебную тайну, в соответствии со статьёй 13 Федерального закона № 323-ФЗ «Об основах охраны здоровья граждан в Российской Федерации».\n\nДоступ включает загруженные лабораторные анализы и иные обследования, распознанные показатели, исходные документы, историю показателей и сформированные по ним резюме.\n\nЦель доступа: рассмотрение моего запроса на консультацию или запись, подготовка врачом ответа, заключения и рекомендаций. Доступ предоставляется только выбранному врачу и не означает разрешение на распространение сведений неопределённому кругу лиц.\n\nЯ понимаю, что при отсутствии этого согласия врач не увидит мои анализы и обследования. Согласие действует до отзыва либо прекращения целей предоставления доступа. Я могу отозвать его через обращение к оператору; ранее совершённые на законном основании действия остаются правомерными.";
   return <>
     <View style={s.consentGroup}>
@@ -1463,7 +1527,7 @@ function Detail({
     <Modal visible={!!pdfURI} animationType="slide" onRequestClose={()=>setPdfURI("")}>
       <SafeAreaView style={s.pdfViewerPage}>
         <View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setPdfURI("")}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>PDF · {active.title}</Text><View style={s.headerSpacer}/></View>
-        {Platform.OS === "web" ? React.createElement("iframe", { src: pdfURI, title: `PDF ${active.title}`, style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#F6F4FA" } }) : <View style={s.nativePdfReturn}><Ionicons name="document-text-outline" size={58} color={colors.violet}/><Text style={s.cardTitle}>PDF открыт в просмотрщике устройства</Text><Text style={s.cardHint}>После возврата в Lab HEALTH нажмите стрелку назад, чтобы закрыть просмотр.</Text><Button label="Открыть PDF ещё раз" icon="open-outline" onPress={()=>void Linking.openURL(pdfURI)}/></View>}
+        {Platform.OS === "web" ? React.createElement("iframe", { src: pdfURI, title: `PDF ${active.title}`, style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#F6F4FA" } }) : <View style={s.nativePdfReturn}><Ionicons name="document-text-outline" size={58} color={colors.violet}/><Text style={s.cardTitle}>PDF открыт в просмотрщике устройства</Text><Text style={s.cardHint}>После возврата в Lab нажмите стрелку назад, чтобы закрыть просмотр.</Text><Button label="Открыть PDF ещё раз" icon="open-outline" onPress={()=>void Linking.openURL(pdfURI)}/></View>}
       </SafeAreaView>
     </Modal>
     </>
@@ -1499,10 +1563,10 @@ function SupportChat({ onBack, compact = false }: { onBack: () => void; compact?
   }
   const visibleMessages = searchValue.trim() ? messages.filter((message) => message.text.toLocaleLowerCase("ru-RU").includes(searchValue.trim().toLocaleLowerCase("ru-RU"))) : messages;
   return <KeyboardAvoidingView testID="support-page" behavior={Platform.OS === "ios" ? "padding" : undefined} style={[s.supportPage, compact && s.supportPageCompact]}>
-    <View style={s.supportHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" onPress={onBack} style={s.supportHeaderButton}><Ionicons name="arrow-back" size={27} color={colors.ink}/></Pressable><Text style={s.supportTitle}>Чат с Lab HEALTH</Text><Pressable accessibilityRole="button" accessibilityLabel="Поиск по сообщениям" onPress={()=>setSearchOpen((value)=>!value)} style={s.supportHeaderButton}><Ionicons name={searchOpen?"close":"search"} size={26} color={colors.ink}/></Pressable></View>
+    <View style={s.supportHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" onPress={onBack} style={s.supportHeaderButton}><Ionicons name="arrow-back" size={27} color={colors.ink}/></Pressable><Text style={s.supportTitle}>Чат с Lab</Text><Pressable accessibilityRole="button" accessibilityLabel="Поиск по сообщениям" onPress={()=>setSearchOpen((value)=>!value)} style={s.supportHeaderButton}><Ionicons name={searchOpen?"close":"search"} size={26} color={colors.ink}/></Pressable></View>
     {searchOpen && <View style={s.supportSearch}><Ionicons name="search" size={19} color={colors.muted}/><TextInput autoFocus style={s.supportSearchInput} placeholder="Поиск в чате" value={searchValue} onChangeText={setSearchValue}/></View>}
     <ScrollView ref={listRef} style={{flex:1}} contentContainerStyle={s.supportMessages} onContentSizeChange={() => listRef.current?.scrollToEnd({animated:false})}>
-      {loading ? <ActivityIndicator color={colors.aqua}/> : !messages.length ? <View style={s.supportEmpty}><View style={s.supportMark}><View style={s.supportMarkBack}/><View style={s.supportMarkFront}><Ionicons name="chatbox-ellipses" size={54} color={colors.white}/></View></View><Text style={s.supportEmptyTitle}>Это чат с Lab HEALTH</Text><Text style={s.supportEmptyText}>Задайте вопрос о приложении, загрузке анализов или доступе к медицинским данным</Text><View style={s.supportTopics}><View style={s.supportTopic}><Ionicons name="document-text-outline" size={24} color={colors.aqua}/></View><View style={s.supportTopic}><Ionicons name="shield-checkmark-outline" size={24} color={colors.aqua}/></View><View style={s.supportTopic}><Ionicons name="help-circle-outline" size={25} color={colors.aqua}/></View></View></View> : visibleMessages.map((message) => <View key={message.id} style={[s.messageBubble,message.sender === "patient" ? s.userBubble : s.assistantBubble,s.supportBubble]}><Text style={[s.body,message.sender === "patient" && {color:colors.white}]}>{message.text}</Text><Text style={[s.messageTime,message.sender === "patient" && {color:"#FFFFFFAA"}]}>{new Date(message.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}
+      {loading ? <ActivityIndicator color={colors.aqua}/> : !messages.length ? <View style={s.supportEmpty}><View style={s.supportMark}><View style={s.supportMarkBack}/><View style={s.supportMarkFront}><Ionicons name="chatbox-ellipses" size={54} color={colors.white}/></View></View><Text style={s.supportEmptyTitle}>Это чат с Lab</Text><Text style={s.supportEmptyText}>Задайте вопрос о приложении, загрузке анализов или доступе к медицинским данным</Text><View style={s.supportTopics}><View style={s.supportTopic}><Ionicons name="document-text-outline" size={24} color={colors.aqua}/></View><View style={s.supportTopic}><Ionicons name="shield-checkmark-outline" size={24} color={colors.aqua}/></View><View style={s.supportTopic}><Ionicons name="help-circle-outline" size={25} color={colors.aqua}/></View></View></View> : visibleMessages.map((message) => <View key={message.id} style={[s.messageBubble,message.sender === "patient" ? s.userBubble : s.assistantBubble,s.supportBubble]}><Text style={[s.body,message.sender === "patient" && {color:colors.white}]}>{message.text}</Text><Text style={[s.messageTime,message.sender === "patient" && {color:"#FFFFFFAA"}]}>{new Date(message.created_at).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</Text></View>)}
     </ScrollView>
     <View style={s.supportComposer}><View style={s.supportComposerIcon}><Ionicons name="chatbubble-ellipses-outline" size={25} color={colors.ink}/></View><TextInput multiline maxLength={4000} style={[s.chatInput,s.supportInput]} placeholder="Ваш вопрос" value={textValue} onChangeText={setTextValue}/><Pressable accessibilityRole="button" accessibilityLabel="Отправить" disabled={busy||!textValue.trim()} style={[s.sendButton,(busy||!textValue.trim())&&s.supportSendDisabled]} onPress={()=>void send()}>{busy?<ActivityIndicator size="small" color={colors.white}/>:<Ionicons name="arrow-up" size={22} color={colors.white}/>}</Pressable></View>
   </KeyboardAvoidingView>;
@@ -1523,10 +1587,10 @@ function Sidebar({
         <View style={s.logo}>
           <Ionicons name="pulse" size={24} color="#fff" />
         </View>
-        <Text style={s.brandText}>lab</Text>
+        <Text style={s.brandText}>Lab</Text>
       </View>
       <View style={s.nav}>
-        {tabsFor(user.role).map((t) => (
+        {tabsFor(user.role, true).map((t) => (
           <Pressable
             key={t}
             accessibilityRole="button"
@@ -1561,42 +1625,50 @@ function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) =>
   const tabs = tabsFor(role);
   const activeIndex = Math.max(0, tabs.indexOf(tab));
   const [navWidth, setNavWidth] = useState(0);
+  const [gestureIndex,setGestureIndex]=useState<number|null>(null);
+  const gestureIndexRef=useRef<number|null>(null);
+  const draggingRef=useRef(false);
+  const lastTouchX=useRef(0);
   const dropX = useRef(new Animated.Value(0)).current;
-  const itemWidth = navWidth > 0 ? (navWidth - 14 - 2 * (tabs.length - 1)) / tabs.length : 0;
+  const dropScaleX=useRef(new Animated.Value(1)).current;
+  const dropScaleY=useRef(new Animated.Value(1)).current;
+  const dropTilt=useRef(new Animated.Value(0)).current;
+  const itemWidth = navWidth > 0 ? (navWidth - 14) / tabs.length : 0;
+  const useNativeDriver=Platform.OS!=="web";
+  const springTo=useCallback((index:number)=>{if(!itemWidth)return;Animated.spring(dropX,{toValue:index*itemWidth,damping:20,stiffness:260,mass:.72,useNativeDriver}).start()},[dropX,itemWidth,useNativeDriver]);
   useEffect(() => {
-    if (!navWidth) return;
-    Animated.spring(dropX, {
-      toValue: activeIndex * (itemWidth + 2),
-      damping: 15,
-      stiffness: 230,
-      mass: 0.72,
-      useNativeDriver: true,
-    }).start();
-  }, [activeIndex, dropX, itemWidth, navWidth]);
+    if(!draggingRef.current)springTo(activeIndex);
+  },[activeIndex,springTo]);
+  const indexAt=useCallback((x:number)=>Math.min(tabs.length-1,Math.max(0,Math.floor((Math.max(7,Math.min(navWidth-7-Number.EPSILON,x))-7)/Math.max(1,itemWidth)))),[itemWidth,navWidth,tabs.length]);
+  const moveDrop=useCallback((x:number)=>{if(!Number.isFinite(x)||!itemWidth||!navWidth)return;const bounded=Math.max(7+itemWidth/2,Math.min(navWidth-7-itemWidth/2,x));const next=indexAt(x);const delta=bounded-lastTouchX.current;lastTouchX.current=bounded;gestureIndexRef.current=next;setGestureIndex(current=>current===next?current:next);dropX.setValue(bounded-itemWidth/2-7);const motion=Math.min(1,Math.abs(delta)/22);dropScaleX.setValue(1.04+motion*.14);dropScaleY.setValue(1.06-motion*.08);dropTilt.setValue(Math.max(-1,Math.min(1,delta/22)))},[dropScaleX,dropScaleY,dropTilt,dropX,indexAt,itemWidth,navWidth]);
+  const settle=useCallback((commit:boolean)=>{const next=gestureIndexRef.current??activeIndex;draggingRef.current=false;gestureIndexRef.current=null;setGestureIndex(null);if(commit)onTab(tabs[next]!);springTo(commit?next:activeIndex);Animated.parallel([Animated.spring(dropScaleX,{toValue:1,damping:9,stiffness:230,mass:.62,useNativeDriver}),Animated.spring(dropScaleY,{toValue:1,damping:9,stiffness:230,mass:.62,useNativeDriver}),Animated.spring(dropTilt,{toValue:0,damping:12,stiffness:220,useNativeDriver})]).start()},[activeIndex,dropScaleX,dropScaleY,dropTilt,onTab,springTo,tabs,useNativeDriver]);
+  const panResponder=useMemo(()=>PanResponder.create({onStartShouldSetPanResponderCapture:()=>true,onMoveShouldSetPanResponderCapture:()=>true,onPanResponderGrant:event=>{draggingRef.current=true;const x=Number(event.nativeEvent.locationX);if(Number.isFinite(x)){lastTouchX.current=x;moveDrop(x)}Animated.parallel([Animated.spring(dropScaleX,{toValue:1.04,damping:13,stiffness:300,useNativeDriver}),Animated.spring(dropScaleY,{toValue:1.06,damping:13,stiffness:300,useNativeDriver})]).start()},onPanResponderMove:event=>moveDrop(Number(event.nativeEvent.locationX)),onPanResponderRelease:()=>settle(true),onPanResponderTerminate:()=>settle(false),onPanResponderTerminationRequest:()=>false}),[dropScaleX,dropScaleY,moveDrop,settle,useNativeDriver]);
+  const visualIndex=gestureIndex??activeIndex;
+  const tilt=dropTilt.interpolate({inputRange:[-1,0,1],outputRange:["-7deg","0deg","7deg"]});
   const dockInsets = Platform.OS === "web"
-    ? ({ bottom: "calc(env(safe-area-inset-bottom, 0px) + 6px)", height: 66 } as any)
-    : { bottom: Math.max(14, insets.bottom + 6), height: 66 };
+    ? ({ bottom: "calc(env(safe-area-inset-bottom, 0px) + 6px)", height: 54 } as any)
+    : { bottom: Math.max(14, insets.bottom + 6), height: 54 };
   return (
-    <View nativeID="mobile-navigation" testID="bottom-nav" style={[s.bottom, dockInsets]} onLayout={(event)=>setNavWidth(event.nativeEvent.layout.width)}>
-      {navWidth > 0 && <Animated.View pointerEvents="none" style={[s.bottomDrop,{width:Math.max(0,itemWidth),transform:[{translateX:dropX}]}]}/>}
-      {tabs.map((t) => (
+    <View nativeID="mobile-navigation" testID="bottom-nav" style={[s.bottom, dockInsets]} onLayout={(event)=>setNavWidth(event.nativeEvent.layout.width)} {...panResponder.panHandlers}>
+      {navWidth > 0 && <Animated.View pointerEvents="none" style={[s.bottomDrop,{width:Math.max(0,itemWidth-6),transform:[{translateX:dropX},{scaleX:dropScaleX},{scaleY:dropScaleY},{skewX:tilt}]}]}/>}
+      {tabs.map((t,index) => (
         <Pressable
           key={t}
           accessibilityRole="button"
           accessibilityState={{ selected: tab === t }}
           style={({ pressed }) => [
             s.bottomItem,
-            tab === t && s.bottomItemActive,
-            pressed && { opacity: 0.68 },
+            visualIndex === index && s.bottomItemActive,
+            pressed && !draggingRef.current && { opacity: 0.68 },
           ]}
           onPress={() => onTab(t)}
         >
-          <View style={[s.bottomIcon, tab === t && s.bottomIconActive]}><Ionicons
+          <View style={[s.bottomIcon, visualIndex === index && s.bottomIconActive]}><Ionicons
               name={role === "patient" && t === "profile" ? "chatbubble-ellipses-outline" : icon[t]}
-              size={23}
-              color={tab === t ? colors.brand : colors.muted}
+              size={20}
+              color={visualIndex === index ? colors.brand : colors.muted}
             /></View>
-          <Text style={[s.bottomText, tab === t && s.bottomTextActive]}>
+          <Text style={[s.bottomText, visualIndex === index && s.bottomTextActive]}>
             {role === "patient" && t === "profile" ? "Чат" : labels[t]}
           </Text>
         </Pressable>
@@ -1837,10 +1909,11 @@ function Banner({ text, onClose }: { text: string; onClose: () => void }) {
 }
 function Loading({ opacity }: { opacity: Animated.Value }) {
   return (
-    <Animated.View style={[s.loading,{opacity}]}>
-      <Image source={require("./assets/startup-shield-v2.png")} resizeMode="cover" style={s.fullBleedImage}/>
+    <View style={s.loading}>
+      <Image source={require("./assets/auth-background-v2.png")} resizeMode="cover" style={s.fullBleedImage}/>
       <SystemChrome dark background="#17214B" canvas="#17214B"/>
-    </Animated.View>
+      <Animated.View style={[s.loadingContent,{opacity}]}><Ionicons name="shield-checkmark-outline" size={96} color="#DDFEFB"/><Text style={s.loadingTitle}>Ваше здоровье теперь под контролем</Text></Animated.View>
+    </View>
   );
 }
 const firstName = (x: string) => x.trim().split(/\s+/)[0] || x;
@@ -1863,9 +1936,9 @@ const s = StyleSheet.create({
   immersiveBackdrop: { position: "absolute", left: 0, right: 0, top: 0, height: 340 },
   safeHome: { backgroundColor: "#17214B" },
   safeInner: { flex: 1, width: "100%", backgroundColor: "transparent" },
-  shell: { flex: 1, width: "100%", flexDirection: "row", overflow: "hidden" },
-  main: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden", position: "relative" },
-  content: { flex: 1, minWidth: 0, maxWidth: "100%" },
+  shell: { flex: 1, width: "100%", flexDirection: "row", overflow: "hidden", backgroundColor: colors.paper },
+  main: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden", position: "relative", backgroundColor: colors.paper },
+  content: { flex: 1, minWidth: 0, maxWidth: "100%", backgroundColor: colors.paper },
   top: {
     height: 58,
     paddingHorizontal: 28,
@@ -1958,13 +2031,13 @@ const s = StyleSheet.create({
     right: 8,
     bottom: 8,
     zIndex: 100,
-    height: 66,
+    height: 54,
     overflow: "hidden",
     flexDirection: "row",
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    borderBottomLeftRadius: 25,
-    borderBottomRightRadius: 25,
+    borderTopLeftRadius: 27,
+    borderTopRightRadius: 27,
+    borderBottomLeftRadius: 27,
+    borderBottomRightRadius: 27,
     paddingHorizontal: 7,
     paddingTop: 3,
     gap: 2,
@@ -2005,7 +2078,7 @@ const s = StyleSheet.create({
   bottomItem: {
     flex: 1,
     zIndex: 2,
-    height: 62,
+    height: 50,
     alignItems: "center",
     justifyContent: "center",
     gap: 2,
@@ -2175,13 +2248,14 @@ const s = StyleSheet.create({
   },
   authOuter: { flex: 1, backgroundColor: "#17214B", overflow: "hidden" },
   fullBleedImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+  authContent: { flex: 1, width: "100%" },
   authScreen: { flex: 1, width: "100%", overflow: "hidden", backgroundColor: "transparent" },
   authWelcome: { flex: 1, width: "100%", maxWidth: 620, alignSelf: "center", justifyContent: "space-between", paddingHorizontal: 24, paddingTop: 150, paddingBottom: 38 },
   authWelcomeCopy: { gap: 12, maxWidth: 520 },
   authWelcomeTitle: { color: colors.white, fontSize: 34, lineHeight: 40, fontWeight: "900", letterSpacing: -1 },
   authWelcomeSlogan: { color: "#D7E7EA", fontSize: 19, lineHeight: 27, fontWeight: "600", maxWidth: 420 },
   authWelcomeActions: { width: "100%", maxWidth: 430, alignSelf: "center", gap: 10 },
-  authLoginGlass: { minHeight: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF08", borderWidth: 1, borderColor: "#FFFFFF1C", ...(Platform.OS === "web" ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,.09)" } : {}) },
+  authLoginGlass: { minHeight: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, backgroundColor: "#FFFFFF08", borderWidth: 1, borderColor: "#FFFFFF1C", ...(Platform.OS === "web" ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,.09)" } : {}) },
   authLoginGlassText: { color: colors.white, fontSize: 18, lineHeight: 23, fontWeight: "800", letterSpacing: .2 },
   authSwitchUser: { minHeight: 42, marginTop: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
   authSwitchUserText: { color: "#DCE8F2", fontSize: 14, lineHeight: 20, fontWeight: "700" },
@@ -2189,7 +2263,7 @@ const s = StyleSheet.create({
   authSecondaryText: { color: colors.white, fontSize: 15, fontWeight: "800" },
   authExistingButton: { minHeight: 42, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
   authExistingText: { color: "#D8E4FF", fontSize: 13, fontWeight: "700" },
-  authPINScreen: { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center", justifyContent: "center", paddingHorizontal: 20, paddingBottom: 22 },
+  authPINScreen: { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center", justifyContent: "center", paddingHorizontal: 20, paddingTop: 48, paddingBottom: 22 },
   authLoginField: { width: "100%", marginBottom: 12 },
   authPINError: { color: "#FFD0D8", fontSize: 13, lineHeight: 18, textAlign: "center", marginTop: 9 },
   authAbout: { flex: 1, width: "100%", maxWidth: 620, alignSelf: "center", padding: 24, paddingTop: 58, gap: 22 },
@@ -2408,13 +2482,13 @@ const s = StyleSheet.create({
   },
   switchTextOnDark: { color: "#D8E4FF" },
   pinBlock: { width: "100%", marginBottom: 12 },
-  pinDotsRow: { width: "100%", minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, marginBottom: 13 },
-  pinDots: { height: 34, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 19 },
+  pinDotsRow: { width: "100%", minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, marginBottom: 46 },
+  pinDots: { height: 36, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 21 },
   pinRevealRow: { width: "100%", maxWidth: 380, minHeight: 64, alignSelf: "center", alignItems: "center", justifyContent: "center", marginBottom: 13 },
   pinDigits: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 20 },
   pinDigit: { width: 29, color: colors.white, fontSize: 30, lineHeight: 37, fontWeight: "800", textAlign: "center" },
   pinEraseButton: { position: "absolute", right: -2, width: 54, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF16", borderWidth: 1, borderColor: "#FFFFFF24" },
-  pinDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: colors.muted, backgroundColor: "transparent" },
+  pinDot: { width: 15, height: 15, borderRadius: 8, borderWidth: 2, borderColor: colors.muted, backgroundColor: "transparent" },
   pinDotOnDark: { borderColor: "#FFFFFF78" },
   pinDotFilled: { borderColor: colors.aqua, backgroundColor: colors.aqua },
   pinGrid: { width: "100%", maxWidth: 380, alignSelf: "center", flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 10 },
@@ -2867,8 +2941,36 @@ const s = StyleSheet.create({
   clinicalBlock: { gap: 3, marginTop: 8 },
   guidelineGrid: { gap: 11 },
   guidelineCard: { minHeight: 84, borderRadius: 20, padding: 15, flexDirection: "row", alignItems: "center", gap: 13, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, ...shadow },
+  doctorHome: { width: "100%", maxWidth: 980, alignSelf: "center", padding: 22, paddingBottom: 110, gap: 16 },
+  doctorHomeWelcome: { minHeight: 150, borderRadius: 28, padding: 24, justifyContent: "center", overflow: "hidden" },
+  doctorHomeGreeting: { color: colors.white, fontSize: 28, lineHeight: 34, fontWeight: "900", marginTop: 7 },
+  doctorHomeLead: { color: "#DCE8F2", fontSize: 14, lineHeight: 21, marginTop: 7 },
+  doctorNoticeSummary: { flexDirection: "row", gap: 12 },
+  doctorNoticeCount: { flex: 1, minHeight: 92, borderRadius: 22, padding: 16, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, ...shadow },
+  doctorNoticeNumber: { color: colors.ink, fontSize: 27, fontWeight: "900" },
+  doctorNoticeLabel: { color: colors.muted, fontSize: 13, fontWeight: "700" },
+  doctorNoticeSection: { borderRadius: 23, padding: 17, gap: 10, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  doctorNoticeRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.line },
+  doctorNoticeIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.violetSoft },
   schedulePage: { flex: 1, padding: 18, gap: 12, maxWidth: 1280, width: "100%", alignSelf: "center" },
   schedulePageCompact: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 110 },
+  scheduleHeading: { minHeight: 64, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  scheduleTitle: { color: colors.ink, fontSize: 26, lineHeight: 32, fontWeight: "900" },
+  scheduleSubtitle: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  scheduleEditLight: { minHeight: 42, borderRadius: 15, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  scheduleEditLightText: { color: colors.brand, fontSize: 13, fontWeight: "800" },
+  monthOverview: { width: "100%", maxWidth: 720, alignSelf: "center", borderRadius: 24, padding: 18, gap: 12, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  monthOverviewHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  monthOverviewTitle: { color: colors.ink, fontSize: 19, fontWeight: "900", textTransform: "capitalize" },
+  monthWeekNames: { flexDirection: "row" },
+  monthWeekName: { width: `${100/7}%`, textAlign: "center", color: colors.muted, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  monthGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 5 },
+  monthDay: { width: `${100/7}%`, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 11 },
+  monthDaySelected: { backgroundColor: colors.aquaSoft },
+  monthDayText: { color: colors.ink, fontSize: 13, fontWeight: "800" },
+  monthDayMuted: { color: "#B5BEC8" },
+  monthDayTextSelected: { color: colors.brand },
+  scheduleArrow: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
   doctorWelcome: { minHeight: 84, borderRadius: 22, paddingHorizontal: 22, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   doctorWelcomeCompact: { minHeight: 74, borderRadius: 18, paddingHorizontal: 16 },
   doctorWelcomeTitle: { color: colors.white, fontSize: 21, fontWeight: "800", marginTop: 4 },
@@ -2997,4 +3099,6 @@ const s = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#17214B",
   },
+  loadingContent: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 20, paddingHorizontal: 30 },
+  loadingTitle: { color: colors.white, fontSize: 25, lineHeight: 33, fontWeight: "900", textAlign: "center", maxWidth: 390 },
 });
