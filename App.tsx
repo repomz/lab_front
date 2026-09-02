@@ -142,9 +142,9 @@ function AppContent() {
     if (manifest) manifest.href = portal === "doctor" ? "/manifest-doctor.webmanifest" : "/manifest.webmanifest";
     const viewport = document.querySelector('meta[name="viewport"]') as HTMLMetaElement | null;
     if (viewport) viewport.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
-    Object.assign(document.documentElement.style, { position: "fixed", inset: "0", width: "100%", height: "100%", overflow: "hidden", overscrollBehavior: "none", background: "#146E78" });
-    Object.assign(document.body.style, { position: "fixed", inset: "0", width: "100%", height: "100%", margin: "0", overflow: "hidden", overscrollBehavior: "none", background: "#146E78" });
-    if (root) Object.assign(root.style, { position: "absolute", inset: "0", width: "100%", height: "auto", minHeight: "0", overflow: "hidden", background: "#146E78" });
+    Object.assign(document.documentElement.style, { position: "fixed", inset: "0", width: "100%", height: "100%", minHeight: "100%", overflow: "hidden", overscrollBehavior: "none", background: "#146E78" });
+    Object.assign(document.body.style, { position: "fixed", inset: "0", width: "100%", height: "100%", minHeight: "100%", margin: "0", overflow: "hidden", overscrollBehavior: "none", background: "#146E78" });
+    if (root) Object.assign(root.style, { position: "fixed", inset: "0", width: "100%", height: "100%", minHeight: "100%", overflow: "hidden", background: "#146E78" });
   }, []);
   async function refresh(u = user) {
     if (!u) return;
@@ -446,7 +446,7 @@ function Auth({ portal, onDone }: { portal: Portal; onDone: (u: User, t: string)
           {busy&&<ActivityIndicator color={colors.white}/>} {error?<Text style={s.authPINError}>{error}</Text>:null}
         </View>}
         {phase === "about" && <View style={s.authAbout}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Lab</Text><Text style={s.authAboutText}>Собирает лабораторные исследования в одном месте, выделяет показатели и помогает следить за их динамикой. Автоматическая оценка не заменяет врача.</Text></View>}
-        {phase === "register" && registerStep === "profile" && <ScrollView style={s.authRegisterScroll} contentContainerStyle={s.authRegisterBody} keyboardShouldPersistTaps="handled"><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Регистрация</Text><Text style={s.authRegisterHint}>Создайте профиль пользователя</Text><Field label="Имя" dark value={form.fullName} onChangeText={(fullName:string)=>setForm(current=>({...current,fullName}))}/><Field label="Дата рождения" dark keyboardType="number-pad" placeholder="ДД.ММ.ГГГГ" maxLength={10} value={form.birthDate} onChangeText={(birthDate:string)=>setForm(current=>({...current,birthDate:formatBirthDate(birthDate)}))}/><View style={s.registrationVitals}><Field label="Рост, см" dark keyboardType="decimal-pad" value={form.heightCM} onChangeText={(heightCM:string)=>setForm(current=>({...current,heightCM}))}/><Field label="Вес, кг" dark keyboardType="decimal-pad" value={form.weightKG} onChangeText={(weightKG:string)=>setForm(current=>({...current,weightKG}))}/></View><AuthGlassAction label="Продолжить" icon="arrow-forward" disabled={!profileReady} onPress={()=>setRegisterStep("pin")}/></ScrollView>}
+        {phase === "register" && registerStep === "profile" && <KeyboardAvoidingView style={s.authRegisterKeyboard} behavior={Platform.OS === "ios" ? "padding" : undefined}><ScrollView style={s.authRegisterScroll} contentContainerStyle={s.authRegisterBody} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive"><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setPhase("welcome")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><Text style={s.authWelcomeTitle}>Регистрация</Text><Text style={s.authRegisterHint}>Создайте профиль пользователя</Text><Field label="Имя" dark value={form.fullName} onChangeText={(fullName:string)=>setForm(current=>({...current,fullName}))}/><Field label="Дата рождения" dark keyboardType="number-pad" placeholder="ДД.ММ.ГГГГ" maxLength={10} value={form.birthDate} onChangeText={(birthDate:string)=>setForm(current=>({...current,birthDate:formatBirthDate(birthDate)}))}/><View style={s.registrationVitals}><Field label="Рост, см" dark keyboardType="decimal-pad" value={form.heightCM} onChangeText={(heightCM:string)=>setForm(current=>({...current,heightCM}))}/><Field label="Вес, кг" dark keyboardType="decimal-pad" value={form.weightKG} onChangeText={(weightKG:string)=>setForm(current=>({...current,weightKG}))}/></View><AuthGlassAction label="Продолжить" icon="arrow-forward" disabled={!profileReady} onPress={()=>setRegisterStep("pin")}/></ScrollView></KeyboardAvoidingView>}
         {phase === "register" && registerStep === "pin" && <View style={s.authRegisterPIN}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.authBack} onPress={()=>setRegisterStep("profile")}><Ionicons name="arrow-back" size={26} color={colors.white}/></Pressable><View><Text style={s.authWelcomeTitle}>Создайте PIN</Text><Text style={s.authRegisterHint}>Четыре цифры для быстрого входа</Text></View><PinPad value={form.pin} dark reveal onChange={changePIN}/>{error?<Text style={s.authPINError}>{error}</Text>:null}<AuthGlassAction label={busy?"Создаём…":"Зарегистрироваться"} disabled={!registrationReady||busy} onPress={()=>void register()}/></View>}
         <Text style={s.authVersionCompact}>Lab · v{APP_VERSION}</Text>
       </SafeAreaView>
@@ -640,9 +640,11 @@ function ClinicalArticleCarousel({articles,onPress}:{articles:ClinicalArticle[];
 }
 
 function WellnessCombinedCard({ageBand,ageTone,onPress}:{ageBand:AgeBand;ageTone:"young"|"middle"|"senior";onPress:(kind:"activity"|"nutrition")=>void}){
-  const activity=activityImages[ageBand][0]!;const nutrition=nutritionImages[ageTone==="young"?0:ageTone==="middle"?1:2]!;
-  const [kind,setKind]=useState<"activity"|"nutrition">("activity");const opacity=useRef(new Animated.Value(1)).current;
-  useEffect(()=>{const timer=setInterval(()=>Animated.timing(opacity,{toValue:0,duration:700,useNativeDriver:true}).start(()=>{setKind(value=>value==="activity"?"nutrition":"activity");Animated.timing(opacity,{toValue:1,duration:900,useNativeDriver:true}).start()}),10000);return()=>{clearInterval(timer);opacity.stopAnimation()}},[opacity]);
+  const activities=activityImages[ageBand];const nutrition=nutritionImages[ageTone==="young"?0:ageTone==="middle"?1:2]!;
+  const [kind,setKind]=useState<"activity"|"nutrition">("activity");const [activityIndex,setActivityIndex]=useState(0);const opacity=useRef(new Animated.Value(1)).current;
+  useEffect(()=>{setActivityIndex(0)},[ageBand]);
+  useEffect(()=>{const timer=setInterval(()=>Animated.timing(opacity,{toValue:0,duration:700,useNativeDriver:true}).start(()=>{setKind(value=>{if(value==="nutrition")setActivityIndex(index=>(index+1)%activities.length);return value==="activity"?"nutrition":"activity"});Animated.timing(opacity,{toValue:1,duration:900,useNativeDriver:true}).start()}),10000);return()=>{clearInterval(timer);opacity.stopAnimation()}},[activities.length,opacity]);
+  const activity=activities[activityIndex]||activities[0]!;
   return <Pressable onPress={()=>onPress(kind)} style={({pressed})=>[s.homeMediaCard,pressed&&{opacity:.88}]}><Animated.Image source={kind==="activity"?activity:nutrition} style={[s.homeMediaImage as any,{opacity}]}/><LinearGradient colors={["#10182ADD","#10182A18"]} start={{x:0,y:1}} end={{x:1,y:0}} style={s.videoOverlay}><View style={{flex:1}}><Text style={s.videoEyebrow}>АКТИВНЫЙ ОБРАЗ ЖИЗНИ И ПРАВИЛЬНОЕ ПИТАНИЕ</Text><Text style={s.videoTitle}>{kind==="activity"?"Движение каждый день":"Еда для здоровья"}</Text><Text style={s.videoSubtitle}>{kind==="activity"?"Рекомендации с учётом возраста":"Баланс и понятные привычки"}</Text></View><View style={s.videoArrow}><Ionicons name="arrow-forward" size={24} color={colors.white}/></View></LinearGradient></Pressable>
 }
 
@@ -737,18 +739,22 @@ function Analyses({
     return Array.from(grouped.entries());
   }, [data]);
   const markerSeries = useMemo(() => {
-    const result = new Map<string, Array<{ date: string; value: number; unit: string; status: string; reference: string }>>();
+    const result = new Map<string, { name: string; points: Array<{ date: string; value: number; unit: string; status: string; reference: string }> }>();
     data.forEach((analysis) => analysis.markers.forEach((item) => {
       if (item.value === undefined) return;
       const reference = item.reference_text || [item.reference_min, item.reference_max].filter((value) => value !== undefined).join(" — ") || "—";
-      result.set(item.name, [...(result.get(item.name) || []), { date: analysis.created_at, value: item.value, unit: item.unit || "", status: item.status, reference }]);
+      const key = item.canonical_name?.trim().toLocaleLowerCase("ru-RU") || item.name.trim().toLocaleLowerCase("ru-RU");
+      const current = result.get(key) || { name: item.name, points: [] };
+      current.points.push({ date: analysis.created_at, value: item.value, unit: item.unit || "", status: item.status, reference });
+      result.set(key, current);
     }));
-    result.forEach((points) => points.sort((a,b) => a.date.localeCompare(b.date)));
+    result.forEach((entry) => entry.points.sort((a,b) => a.date.localeCompare(b.date)));
     return result;
   }, [data]);
-  const dynamicEntries = useMemo(() => Array.from(markerSeries.entries()).map(([name, points]) => ({ name, points, latest: points[points.length - 1]! })).filter((entry) => entry.name.toLocaleLowerCase("ru-RU").includes(dynamicQuery.trim().toLocaleLowerCase("ru-RU"))).sort((a,b) => a.name.localeCompare(b.name,"ru-RU")), [markerSeries, dynamicQuery]);
-  const series = marker ? markerSeries.get(marker) || [] : [];
-  const overall = data.find((analysis) => analysis.ai_review?.doctor_needed)?.ai_review || data[0]?.ai_review;
+  const dynamicEntries = useMemo(() => Array.from(markerSeries.entries()).map(([key, entry]) => ({ key, name: entry.name, points: entry.points, latest: entry.points[entry.points.length - 1]! })).filter((entry) => entry.name.toLocaleLowerCase("ru-RU").includes(dynamicQuery.trim().toLocaleLowerCase("ru-RU"))).sort((a,b) => a.name.localeCompare(b.name,"ru-RU")), [markerSeries, dynamicQuery]);
+  const selectedMarker = marker ? markerSeries.get(marker) : undefined;
+  const series = selectedMarker?.points || [];
+  const overall = data[0]?.ai_review;
   return (
     <View style={s.analysisPage}>
     <ScrollView contentContainerStyle={[s.scroll, s.analysisScrollContent, compact && s.scrollCompact]}>
@@ -760,7 +766,7 @@ function Analyses({
         <View style={s.dynamicsScreen}>
           <Text style={s.dynamicHistoryTitle}>Выберите показатель</Text>
           <View style={s.doctorSearch}><Ionicons name="search" size={20} color={colors.muted}/><TextInput style={s.doctorSearchInput} value={dynamicQuery} onChangeText={setDynamicQuery} placeholder="Например, креатинин"/></View>
-          <View style={s.dynamicCards}>{dynamicEntries.map((entry) => <DynamicMarkerCard key={entry.name} name={entry.name} points={entry.points} onPress={() => setMarker(entry.name)}/>)}</View>
+          <View style={s.dynamicCards}>{dynamicEntries.map((entry) => <DynamicMarkerCard key={entry.key} name={entry.name} points={entry.points} onPress={() => setMarker(entry.key)}/>)}</View>
           {!dynamicEntries.length && <Empty icon="stats-chart-outline" title="Показатель не найден" text="Измените запрос или загрузите исследование с этим показателем."/>}
         </View>
       ) : (
@@ -771,7 +777,7 @@ function Analyses({
         />
       )}
       <Modal visible={infoOpen} animationType="slide" onRequestClose={()=>setInfoOpen(false)}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setInfoOpen(false)}><Ionicons name="arrow-back" size={25}/></Pressable><Text style={s.fullScreenTitle}>Ваше состояние</Text><View style={s.iconButton}/></View><ScrollView contentContainerStyle={s.fullScreenBody}>{data.map((analysis)=><View key={analysis.id} style={s.aiRecommendation}><View style={s.rowBetween}><Text style={s.reviewTitle}>{analysis.title}</Text><Text style={s.analysisMeta}>{date(analysis.created_at)}</Text></View><Text style={s.body}>{analysis.ai_review?.summary||"Автоматическая сводка отсутствует."}</Text>{analysis.ai_review?.lifestyle?.map((x,i)=><Text key={`l-${i}`} style={s.body}>• {x}</Text>)}{analysis.ai_review?.nutrition?.map((x,i)=><Text key={`n-${i}`} style={s.body}>• {x}</Text>)}{analysis.ai_review?.suggested_specialty?<Text style={s.specialtyLine}>Обсудить со специалистом: {analysis.ai_review.suggested_specialty}</Text>:null}</View>)}<Text style={s.aiDisclaimer}>Информация сформирована автоматически по распознанным данным и не является диагнозом. Сверяйте значения с оригинальными бланками.</Text></ScrollView></SafeAreaView></Modal>
-      <Modal visible={!!marker} animationType="slide" onRequestClose={()=>setMarker("")}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setMarker("")}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{marker}</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.dynamicDetailBody}>{series.length ? <><View style={s.dynamicCurrent}><Text style={s.dynamicCurrentValue}>{series[series.length-1]?.value} {series[series.length-1]?.unit}</Text><Text style={s.analysisMeta}>Последний результат · {date(series[series.length-1]!.date)}</Text></View><DynamicsChart series={series}/><Text style={s.dynamicHistoryTitle}>История результатов</Text><View style={s.dynamicHistory}>{[...series].reverse().map((point,index)=><View key={`${point.date}-${index}`} style={s.dynamicHistoryRow}><View><Text style={s.dynamicHistoryDate}>{date(point.date)}</Text><Text style={[s.dynamicHistoryStatus,point.status!=="normal"&&{color:colors.coral}]}>{markerStatusText(point.status)} · {point.reference}</Text></View><Text style={s.dynamicHistoryValue}>{point.value} {point.unit}</Text></View>)}</View></>:null}</ScrollView></SafeAreaView></Modal>
+      <Modal visible={!!marker} animationType="slide" onRequestClose={()=>setMarker("")}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setMarker("")}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{selectedMarker?.name||"Динамика"}</Text><View style={s.headerSpacer}/></View><ScrollView contentContainerStyle={s.dynamicDetailBody}>{series.length ? <><View style={s.dynamicCurrent}><Text style={s.dynamicCurrentValue}>{series[series.length-1]?.value} {series[series.length-1]?.unit}</Text><Text style={s.analysisMeta}>Последний результат · {date(series[series.length-1]!.date)}</Text></View><DynamicsChart series={series}/><Text style={s.dynamicHistoryTitle}>История результатов</Text><View style={s.dynamicHistory}>{[...series].reverse().map((point,index)=><View key={`${point.date}-${index}`} style={s.dynamicHistoryRow}><View><Text style={s.dynamicHistoryDate}>{date(point.date)}</Text><Text style={[s.dynamicHistoryStatus,point.status!=="normal"&&{color:colors.coral}]}>{markerStatusText(point.status)} · {point.reference}</Text></View><Text style={s.dynamicHistoryValue}>{point.value} {point.unit}</Text></View>)}</View></>:null}</ScrollView></SafeAreaView></Modal>
     </ScrollView>
     {!doctor && !infoOpen && !marker && <View style={[s.uploadDock, Platform.OS === "web" && s.uploadDockWeb]}><Button label="Загрузить анализ" icon="cloud-upload-outline" onPress={onUpload}/></View>}
     </View>
@@ -1694,7 +1700,7 @@ function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: Tab) =>
   const visualIndex=gestureIndex??activeIndex;
   const tilt=dropTilt.interpolate({inputRange:[-1,0,1],outputRange:["-7deg","0deg","7deg"]});
   const dockInsets = Platform.OS === "web"
-    ? ({ bottom: 6, height: 66 } as any)
+    ? ({ bottom: "calc(env(safe-area-inset-bottom, 0px) + 6px)", height: 66 } as any)
     : { bottom: Math.max(6, insets.bottom - 22), height: 66 };
   return (
     <View nativeID="mobile-navigation" testID="bottom-nav" style={[s.bottom, dockInsets]} onLayout={(event)=>setNavWidth(event.nativeEvent.layout.width)} {...panResponder.panHandlers}>
@@ -1960,7 +1966,7 @@ function Loading({ opacity }: { opacity: Animated.Value }) {
     <View style={s.loading}>
       <AuthBackdrop/>
       <SystemChrome dark background="#17214B" canvas="#146E78"/>
-      <Animated.View style={[s.loadingContent,{opacity}]}><View style={s.loadingShield}><Ionicons name="shield-checkmark-outline" size={108} color="#F4FFFE"/></View><Text style={s.loadingTitle}>Ваше здоровье теперь под контролем</Text></Animated.View>
+      <Animated.View style={[s.loadingContent,{opacity}]}><Image source={require("./assets/shield-mark.png")} resizeMode="contain" style={s.loadingShield}/><Text style={s.loadingTitle}>Ваше здоровье теперь под контролем</Text></Animated.View>
     </View>
   );
 }
@@ -2320,6 +2326,7 @@ const s = StyleSheet.create({
   authAbout: { flex: 1, width: "100%", maxWidth: 620, alignSelf: "center", padding: 24, paddingTop: 58, gap: 22 },
   authAboutText: { color: "#D7E7EA", fontSize: 17, lineHeight: 27, maxWidth: 530 },
   authBack: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF14" },
+  authRegisterKeyboard: { flex: 1, width: "100%" },
   authRegisterScroll: { flex: 1, width: "100%" },
   authRegisterBody: { width: "100%", maxWidth: 540, alignSelf: "center", paddingHorizontal: 20, paddingTop: 18, paddingBottom: 74, gap: 5 },
   authRegisterPIN: { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center", justifyContent: "center", paddingHorizontal: 20, paddingBottom: 22, gap: 13 },
@@ -3180,6 +3187,6 @@ const s = StyleSheet.create({
     backgroundColor: "#17214B",
   },
   loadingContent: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 20, paddingHorizontal: 30 },
-  loadingShield: { width: 154, height: 154, borderRadius: 77, alignItems: "center", justifyContent: "center", shadowColor: "#78FFF1", shadowOpacity: .55, shadowRadius: 28, shadowOffset: {width:0,height:0} },
+  loadingShield: { width: 154, height: 154 },
   loadingTitle: { color: colors.white, fontSize: 25, lineHeight: 33, fontWeight: "900", textAlign: "center", maxWidth: 390 },
 });
