@@ -544,7 +544,7 @@ function DoctorHome({ consultations, compact, onPatients, onSchedule }: { consul
     .sort((a,b) => (a.appointment_at || "").localeCompare(b.appointment_at || ""));
   const requests = consultations.filter((item) => item.source !== "ai" && item.service_type !== "appointment" && item.status !== "answered");
   return <ScrollView contentContainerStyle={[s.doctorHome,compact&&s.scrollCompact]}>
-    <LinearGradient colors={["#17214B", "#403B87", "#167C82"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.doctorHomeWelcome}><Text style={s.welcomeOver}>ГЛАВНАЯ</Text><Text style={s.doctorHomeGreeting}>Здравствуйте, Марат</Text><Text style={s.doctorHomeLead}>Новые записи и обращения пациентов собраны здесь.</Text></LinearGradient>
+    <LinearGradient colors={["#17214B", "#403B87", "#167C82"]} start={{x:0,y:0}} end={{x:1,y:1}} style={s.doctorHomeWelcome}><Text style={s.doctorHomeGreeting}>Здравствуйте, Марат</Text></LinearGradient>
     <View style={s.doctorNoticeSummary}>
       <Pressable onPress={onSchedule} style={s.doctorNoticeCount}><Ionicons name="calendar-outline" size={24} color={colors.violet}/><Text style={s.doctorNoticeNumber}>{appointments.length}</Text><Text style={s.doctorNoticeLabel}>записей</Text></Pressable>
       <Pressable onPress={onPatients} style={s.doctorNoticeCount}><Ionicons name="chatbubbles-outline" size={24} color={colors.aqua}/><Text style={s.doctorNoticeNumber}>{requests.length}</Text><Text style={s.doctorNoticeLabel}>обращений</Text></Pressable>
