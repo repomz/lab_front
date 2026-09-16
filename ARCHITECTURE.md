@@ -1,0 +1,27 @@
+# Frontend architecture
+
+The Expo application uses a feature-oriented structure. The root `App.tsx` is only the Expo entry point; application composition lives in `src/application/App.tsx`.
+
+## Dependency direction
+
+- `src/application` composes screens and owns session/navigation state.
+- `src/features/*` owns domain UI and domain-specific behavior.
+- `src/components` contains reusable, domain-neutral UI and platform adapters.
+- `src/navigation` owns navigation contracts and navigation chrome.
+- `src/api.ts` and `src/types.ts` are the shared backend boundary.
+- `src/theme.ts`, `src/styles.ts`, and `src/config.ts` contain shared presentation and configuration primitives.
+- `src/utils` contains platform-neutral or narrowly scoped helpers.
+
+Feature modules must not import the application composition root. Shared behavior used by multiple features belongs in `components`, `utils`, or a dedicated shared feature utility (for example `features/articles/utils.ts`). API calls remain behind `api.ts`, and backend DTOs remain in `types.ts`.
+
+## Feature map
+
+- `auth` — login, registration, and PIN entry.
+- `analyses` — list/dynamics, upload/recognition, details, and reports.
+- `ai` — AI conversations.
+- `chat` — doctor and support conversations.
+- `clinic` — doctors, appointments, schedules, patients, and article management.
+- `home` and `health` — dashboards and educational content.
+- `profile` — profile editing, completion, and account deletion flows.
+
+Run `pnpm typecheck` and `pnpm build` before publishing. The production build includes the PWA invariant verifier.
