@@ -25,4 +25,14 @@ Feature modules must not import the application composition root. Shared behavio
 - `home` and `health` — dashboards and educational content.
 - `profile` — profile editing, completion, and account deletion flows.
 
+## Responsive web breakpoints
+
+- `< 640 px` — compact mobile layout and bottom navigation.
+- `640–959 px` — tablet layout.
+- `≥ 960 px` — desktop shell with sidebar.
+- `≥ 1600 px` — wide dashboard: home media and analysis/dynamics cards use two columns with bounded readable widths.
+- `≥ 1800 px` — large-screen authentication composition grows to a 1480 px canvas with scaled typography and actions.
+
+Content remains centered and bounded on 2560 px and ultrawide displays; backgrounds continue full bleed. New desktop styles must be checked at 1366×768, 1440×900, 1920×1080, 2560×1440, and 3440×1440 in addition to the mobile PWA matrix.
+
 Run `pnpm typecheck` and `pnpm build` before publishing. The production build includes the PWA invariant verifier.

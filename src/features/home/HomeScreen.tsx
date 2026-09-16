@@ -28,6 +28,7 @@ const greetingForNow = () => {
 
 export function Home({
   compact,
+  wide,
   user,
   analyses,
   consultations,
@@ -39,6 +40,7 @@ export function Home({
   onOpenDoctor,
 }: {
   compact: boolean;
+  wide: boolean;
   user: User;
   analyses: Analysis[];
   consultations: Consultation[];
@@ -68,7 +70,7 @@ export function Home({
     <PatientAppMenu visible={patientMenuOpen} user={user} onUser={onUser} onClose={()=>setPatientMenuOpen(false)} onProfile={()=>{setPatientMenuOpen(false);setProfileOpen(true)}} />
   </>;
   return (
-    <View style={[s.patientHome, compact && s.patientHomeCompact]}>
+    <View style={[s.patientHome, compact && s.patientHomeCompact, wide && s.patientHomeWide]}>
       <View style={[s.patientWelcome, compact && s.patientWelcomeCompact]}>
         <View style={s.welcomeIdentity}>
           <Text numberOfLines={2} style={[s.welcomeTitle, s.homeGreetingText, compact && s.welcomeTitleCompact]}>
@@ -95,7 +97,7 @@ export function Home({
           </View>}
         </View>
       </View>
-      <View nativeID="patient-home-lower" style={[s.homeDiscovery, compact && s.homeDiscoveryCompact]}>
+      <View nativeID="patient-home-lower" style={[s.homeDiscovery, compact && s.homeDiscoveryCompact, wide && s.homeDiscoveryWide]}>
         {Platform.OS !== "web" && <LinearGradient pointerEvents="none" colors={["#F4EFF8", "#F6F4FA", "#EEF7F6"]} locations={[0,.52,1]} start={{x:0,y:0}} end={{x:1,y:0}} style={StyleSheet.absoluteFillObject}/>}
         <HealthBasicsCard user={user} onPress={()=>setHealthBasicsOpen(true)}/>
         <ClinicalArticleCarousel articles={articles} onPress={()=>setClinicalCasesOpen(true)}/>

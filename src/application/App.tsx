@@ -84,6 +84,7 @@ function AppContent() {
 	const [deletionNoticeHidden,setDeletionNoticeHidden]=useState(false);
   const { width } = useWindowDimensions();
   const desktop = width >= 960;
+  const wideDesktop = width >= 1600;
   const compact = width < 640;
 	useEffect(()=>{
 		if(!user?.deletion_scheduled_for)return;
@@ -211,6 +212,7 @@ function AppContent() {
     ) : tab === "home" ? (
       <Home
         compact={compact}
+        wide={wideDesktop}
         user={user}
         analyses={analyses}
         consultations={consultations}
@@ -224,6 +226,7 @@ function AppContent() {
     ) : tab === "analyses" ? (
       <Analyses
         compact={compact}
+        wide={wideDesktop}
         data={analyses}
         doctor={user.role === "doctor"}
         onOpen={setSelected}

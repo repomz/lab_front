@@ -19,12 +19,14 @@ function processingLabel(analysis: Analysis) {
 
 export function Analyses({
   compact,
+  wide,
   data,
   doctor,
   onOpen,
   onUpload,
 }: {
   compact: boolean;
+  wide: boolean;
   data: Analysis[];
   doctor: boolean;
   onOpen: (a: Analysis) => void;
@@ -59,14 +61,14 @@ export function Analyses({
   const series = selectedMarker?.points || [];
   return (
     <View style={s.analysisPage}>
-    <ScrollView contentContainerStyle={[s.primaryTabScroll, compact && s.primaryTabScrollCompact, s.analysisScrollContent]}>
+    <ScrollView contentContainerStyle={[s.primaryTabScroll, compact && s.primaryTabScrollCompact, wide && s.primaryTabScrollWide, s.analysisScrollContent]}>
       {!doctor && <View style={s.segment}><Segment active={mode === "research"} label="Исследования" icon="documents-outline" onPress={() => setMode("research")} /><Segment active={mode === "dynamics"} label="Динамика" icon="stats-chart-outline" onPress={() => setMode("dynamics")} /></View>}
       {data.length && (doctor || mode === "research") ? (
-        <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View><View style={s.compactCardGrid}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} onPress={() => onOpen(analysis)} />)}</View></View>)}</View>
+        <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View><View style={[s.compactCardGrid,wide&&s.compactCardGridWide]}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} wide={wide} onPress={() => onOpen(analysis)} />)}</View></View>)}</View>
       ) : data.length && mode === "dynamics" ? (
         <View style={s.dynamicsScreen}>
           <View style={s.doctorSearch}><Ionicons name="search" size={20} color={colors.muted}/><TextInput style={s.doctorSearchInput} value={dynamicQuery} onChangeText={setDynamicQuery} placeholder="Например, креатинин"/></View>
-          <View style={s.dynamicCards}>{dynamicEntries.map((entry) => <DynamicMarkerCard key={entry.key} name={entry.name} onPress={() => setMarker(entry.key)}/>)}</View>
+          <View style={[s.dynamicCards,wide&&s.dynamicCardsWide]}>{dynamicEntries.map((entry) => <DynamicMarkerCard key={entry.key} name={entry.name} wide={wide} onPress={() => setMarker(entry.key)}/>)}</View>
           {!dynamicEntries.length && <Empty icon="stats-chart-outline" title="Показатель не найден" text="Измените запрос или загрузите исследование с этим показателем."/>}
         </View>
       ) : (
@@ -83,8 +85,8 @@ export function Analyses({
   );
 }
 
-export function DynamicMarkerCard({ name, onPress }: { name: string; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={`Открыть динамику: ${name}`} onPress={onPress} style={({pressed})=>[s.dynamicMarkerCard,pressed&&s.pressablePressed]}>
+export function DynamicMarkerCard({ name, wide=false, onPress }: { name: string; wide?: boolean; onPress: () => void }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={`Открыть динамику: ${name}`} onPress={onPress} style={({pressed})=>[s.dynamicMarkerCard,wide&&s.wideGridCard,pressed&&s.pressablePressed]}>
     <View style={s.dynamicMarkerCopy}><Text numberOfLines={1} style={s.dynamicCardTitle}>{name}</Text></View>
     <View style={s.dynamicCardArrow}><Ionicons name="chevron-forward" size={23} color={colors.ink}/></View>
   </Pressable>;
@@ -99,9 +101,11 @@ export function DynamicsChart({ series }: { series: Array<{ date: string; value:
 }
 export function AnalysisCard({
   item,
+  wide=false,
   onPress,
 }: {
   item: Analysis;
+  wide?: boolean;
   onPress: () => void;
 }) {
   const processing = isProcessingAnalysis(item);
@@ -114,6 +118,7 @@ export function AnalysisCard({
       accessibilityLabel={`Открыть результат: ${item.title}`}
       style={({ pressed }) => [
         s.analysisCard,
+        wide && s.wideGridCard,
         processing && s.analysisCardProcessing,
         verification && s.analysisCardReview,
         failed && s.analysisCardAlert,
