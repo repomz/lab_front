@@ -129,6 +129,8 @@ export const api = {
   },
   confirmAnalysis: (analysisID: string, markers: Analysis["markers"]) =>
     request<Analysis>(`/analyses/${analysisID}/confirm`, { method: "POST", body: JSON.stringify({ markers }) }),
+  reprocessAnalysis: (analysisID: string) =>
+    request<Analysis>(`/analyses/${analysisID}/reprocess`, { method: "POST" }),
   deleteAnalysis: (analysisID: string) =>
     request<void>(`/analyses/${analysisID}`, { method: "DELETE" }),
   share: (analysisID: string, doctorID: string) =>

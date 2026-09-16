@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Platform, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../api";
@@ -9,6 +9,13 @@ import { s } from "../../styles";
 import { Button, Empty, Section, Segment, Status, analysisDate, date } from "../../components/ui";
 import { Modal, ScrollView } from "../../components/platform";
 import { markerStatusText } from "./report";
+
+export const isProcessingAnalysis = (analysis: Analysis) => analysis.status === "queued" || analysis.status === "processing";
+
+function processingLabel(analysis: Analysis) {
+  const labels: Record<string,string> = { queued:"В очереди",retry_wait:"Повторная попытка",preprocessing:"Подготовка документа",recognizing:"Распознавание",structuring:"Разбор показателей",finalizing:"Проверка результата" };
+  return labels[analysis.processing_stage || ""] || "Обработка";
+}
 
 export function Analyses({
   compact,
@@ -29,14 +36,14 @@ export function Analyses({
   const groups = useMemo(() => {
     const grouped = new Map<string, Analysis[]>();
     data.forEach((analysis) => {
-      const key = analysis.category || analysis.title || "Лабораторные исследования";
+      const key = isProcessingAnalysis(analysis) ? "Обрабатываются" : analysis.status === "awaiting_confirmation" ? "Требуют проверки" : analysis.status === "needs_review" || analysis.status === "failed" ? "Нужны действия" : analysis.category || analysis.title || "Лабораторные исследования";
       grouped.set(key, [...(grouped.get(key) || []), analysis]);
     });
     return Array.from(grouped.entries());
   }, [data]);
   const markerSeries = useMemo(() => {
     const result = new Map<string, { name: string; points: Array<{ date: string; value: number; unit: string; status: string; reference: string }> }>();
-    data.forEach((analysis) => analysis.markers.forEach((item) => {
+    data.filter((analysis)=>analysis.status==="ready").forEach((analysis) => analysis.markers.forEach((item) => {
       if (item.value === undefined) return;
       const reference = item.reference_text || [item.reference_min, item.reference_max].filter((value) => value !== undefined).join(" — ") || "—";
       const key = item.canonical_name?.trim().toLocaleLowerCase("ru-RU") || item.name.trim().toLocaleLowerCase("ru-RU");
@@ -97,19 +104,30 @@ export function AnalysisCard({
   item: Analysis;
   onPress: () => void;
 }) {
+  const processing = isProcessingAnalysis(item);
+  const verification = item.status === "awaiting_confirmation";
+  const failed = item.status === "failed" || item.status === "needs_review";
+  const progress = Math.max(5, Math.min(100, item.processing_progress || 5));
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Открыть результат: ${item.title}`}
       style={({ pressed }) => [
         s.analysisCard,
+        processing && s.analysisCardProcessing,
+        verification && s.analysisCardReview,
+        failed && s.analysisCardAlert,
         pressed && { opacity: 0.78 },
       ]}
       onPress={onPress}
     >
-      <View style={{ flex: 1 }}>
-        <Text style={s.analysisTitle}>{date(analysisDate(item))}</Text>
+      <View style={[s.analysisIcon, processing && s.analysisIconProcessing, failed && s.analysisIconFailed]}>{processing ? <ActivityIndicator size="small" color={colors.brand}/> : <Ionicons name={verification?"checkmark-done-outline":failed?"alert-circle-outline":"flask-outline"} size={22} color={failed?colors.coral:colors.brand}/>}</View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={s.analysisTitle} numberOfLines={1}>{processing || failed || verification ? item.original_name : date(analysisDate(item))}</Text>
+        <Text style={s.analysisMeta}>{processing ? processingLabel(item) : verification ? "Проверьте распознанные значения" : failed ? (item.processing_error || "Нужна повторная обработка") : item.title}</Text>
+        {processing && <View style={s.jobCardProgressTrack}><View style={[s.jobCardProgressFill,{width:`${progress}%`}]}/></View>}
       </View>
+      <Ionicons name="chevron-forward" size={20} color={colors.muted}/>
     </Pressable>
   );
 }

@@ -16,7 +16,7 @@ import { DeletionPendingPrompt, Profile, ProfileCompletionModal, ProfileCompleti
 import { Auth } from "../features/auth/Auth";
 import { AIWorkspace } from "../features/ai/AIWorkspace";
 import { AnalysisDetail } from "../features/analyses/AnalysisDetail";
-import { Analyses } from "../features/analyses/AnalysesScreen";
+import { Analyses, isProcessingAnalysis } from "../features/analyses/AnalysesScreen";
 import { Asset, UploadModal } from "../features/analyses/UploadAnalysis";
 import { DoctorConsultationInbox, PatientDoctorChats } from "../features/chat/Chats";
 import { AdminDashboard, AdminPreviewControl, Home } from "../features/home/HomeScreen";
@@ -79,6 +79,8 @@ function AppContent() {
   const [profilePromptOpen, setProfilePromptOpen] = useState(false);
   const [profileCompletionOpen, setProfileCompletionOpen] = useState(false);
   const [adminSession, setAdminSession] = useState<{user:User;token:string}|null>(null);
+	const analysesRef = useRef<Analysis[]>([]);
+	const [jobNotice,setJobNotice]=useState<{analysis:Analysis;title:string;text:string}|null>(null);
 	const [deletionNoticeHidden,setDeletionNoticeHidden]=useState(false);
   const { width } = useWindowDimensions();
   const desktop = width >= 960;
@@ -104,6 +106,33 @@ function AppContent() {
     Object.assign(document.body.style, { width: "100%", height: "100%", minHeight: "100%", margin: "0", overflow: "hidden", position: "fixed", inset: "0", overscrollBehavior: "none", backgroundColor: "#176E78", backgroundImage: initialGradient });
     if (root) Object.assign(root.style, { width: "100%", height: "100%", minHeight: "100%", overflow: "hidden", backgroundColor: "#176E78", backgroundImage: initialGradient });
   }, []);
+  useEffect(()=>{analysesRef.current=analyses},[analyses]);
+  const hasActiveOCRJobs=analyses.some(isProcessingAnalysis);
+  useEffect(()=>{
+	if(!user||user.role!=="patient"||!hasActiveOCRJobs)return;
+	let disposed=false;
+	let polling=false;
+	const poll=async()=>{
+		if(polling||disposed)return;
+		polling=true;
+		try{
+			const latest=await api.analyses();
+			if(disposed)return;
+			const previous=new Map(analysesRef.current.map(item=>[item.id,item]));
+			const finished=latest.find(item=>{const before=previous.get(item.id);return !!before&&isProcessingAnalysis(before)&&!isProcessingAnalysis(item)});
+			setAnalyses(latest);
+			setSelected(current=>current?(latest.find(item=>item.id===current.id)||current):current);
+			if(finished){
+				const success=finished.status==="awaiting_confirmation";
+				setJobNotice({analysis:finished,title:success?"Анализ распознан":"Обработка завершена",text:success?"Проверьте показатели — результат уже доступен.":finished.processing_error||"Откройте анализ, чтобы выбрать следующее действие."});
+			}
+		}catch{}finally{polling=false}
+	};
+	void poll();
+	const timer=setInterval(()=>void poll(),2500);
+	return()=>{disposed=true;clearInterval(timer)};
+  },[user?.id,user?.role,hasActiveOCRJobs]);
+  useEffect(()=>{if(!jobNotice)return;const timer=setTimeout(()=>setJobNotice(null),12000);return()=>clearTimeout(timer)},[jobNotice]);
   async function refresh(u = user) {
     if (!u) return;
     if (u.role === "admin") {
@@ -248,12 +277,8 @@ function AppContent() {
         onDone={async (result) => {
           setUpload(null);
           setTab("analyses");
-          setSelected(result);
-          try {
-            await refresh();
-          } catch {
-            setError("Результат распознан, но список анализов не обновился.");
-          }
+		  setAnalyses(current=>[result,...current.filter(item=>item.id!==result.id)]);
+		  setJobNotice({analysis:result,title:"Документ загружен",text:"Распознавание идёт в фоне. Можно продолжить работу."});
         }}
       />
       <AnalysisDetail
@@ -261,9 +286,10 @@ function AppContent() {
         user={user}
         onClose={() => setSelected(null)}
         onDelete={user.role === "patient" && selected ? () => requestDelete(selected) : undefined}
-        onChanged={async () => {
-          setSelected(null);
-          await refresh();
+        onChanged={async (updated) => {
+		  setAnalyses(current=>current.map(item=>item.id===updated.id?updated:item));
+		  setSelected(updated);
+		  if(updated.status==="ready")setJobNotice({analysis:updated,title:"Результат сохранён",text:"Резюме сформировано и доступно для просмотра."});
         }}
         onError={setError}
       />
@@ -295,6 +321,7 @@ function AppContent() {
         />
       </>}
       {adminSession && <AdminPreviewControl onReturn={async()=>{await setToken(adminSession.token);setUser(adminSession.user);setAdminSession(null);setTab("home");setAnalyses([]);setConsultations([])}}/>}
+      {jobNotice&&<Pressable accessibilityRole="button" accessibilityLabel={`${jobNotice.title}. Открыть анализ`} style={s.jobNotice} onPress={()=>{setTab("analyses");setSelected(jobNotice.analysis);setJobNotice(null)}}><View style={s.jobNoticeIcon}><Ionicons name={isProcessingAnalysis(jobNotice.analysis)?"hourglass-outline":jobNotice.analysis.status==="awaiting_confirmation"?"checkmark-done-outline":"notifications-outline"} size={22} color={colors.brand}/></View><View style={s.jobNoticeCopy}><Text style={s.jobNoticeTitle}>{jobNotice.title}</Text><Text numberOfLines={2} style={s.jobNoticeText}>{jobNotice.text}</Text><Text style={s.jobNoticeAction}>{isProcessingAnalysis(jobNotice.analysis)?"Посмотреть ход":"Открыть результат"}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Закрыть уведомление" hitSlop={10} onPress={(event)=>{event.stopPropagation();setJobNotice(null)}}><Ionicons name="close" size={20} color={colors.muted}/></Pressable></Pressable>}
       </SafeAreaView>
       {!desktop && <Bottom role={user.role} tab={tab} onTab={setTab} />}
     </View>

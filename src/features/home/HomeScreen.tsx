@@ -56,7 +56,8 @@ export function Home({
   const [articles, setArticles] = useState<ClinicalArticle[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [patientMenuOpen, setPatientMenuOpen] = useState(false);
-  const latest = analyses[0];
+  const completedAnalyses = analyses.filter((analysis)=>analysis.status==="ready");
+  const latest = completedAnalyses[0];
   const latestNeedsAttention = !!latest && (latest.ai_review?.doctor_needed || latest.markers.some((marker) => marker.status === "high" || marker.status === "low"));
   const upcoming = consultations.filter((item) => item.service_type === "appointment" && item.appointment_at && new Date(item.appointment_at) > new Date()).sort((a, b) => (a.appointment_at || "").localeCompare(b.appointment_at || ""))[0];
   const answered = consultations.find((item) => item.status === "answered" && item.reply);
@@ -363,7 +364,7 @@ function WellnessModal({ kind, user, analyses, onClose, onUser }: { kind: "activ
       <SafeAreaView style={s.fullScreenModal}>
         <View style={s.fullScreenHeader}><Pressable style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25} color={colors.ink} /></Pressable><Text style={s.fullScreenTitle}>{kind === "activity" ? "Активный образ жизни" : "Правильное питание"}</Text><View style={s.iconButton}/></View>
         <ScrollView contentContainerStyle={s.wellnessBody} keyboardShouldPersistTaps="handled">
-          <View style={s.profileInsight}><Ionicons name="person-circle-outline" size={24} color={colors.brand} /><Text style={s.body}>{profile ? `${profile.age} лет · ИМТ ${profile.bmi} · учтены ${analyses.length} исследований` : "Для персонализации заполните профиль"}</Text></View>
+          <View style={s.profileInsight}><Ionicons name="person-circle-outline" size={24} color={colors.brand} /><Text style={s.body}>{profile ? `${profile.age} лет · ИМТ ${profile.bmi} · учтены ${analyses.filter(item=>item.status==="ready").length} исследований` : "Для персонализации заполните профиль"}</Text></View>
           <Text style={s.surveyTitle}>Короткий опрос</Text>
           {kind === "activity" ? <>
             <Text style={s.label}>Есть регулярный спорт?</Text><View style={s.choiceRow}><Choice active={activity.regular_sport} label="Да" onPress={() => setActivity({ ...activity, regular_sport: true })} /><Choice active={!activity.regular_sport} label="Нет" onPress={() => setActivity({ ...activity, regular_sport: false })} /></View>
@@ -385,5 +386,3 @@ function WellnessModal({ kind, user, analyses, onClose, onUser }: { kind: "activ
     </Modal>
   );
 }
-
-

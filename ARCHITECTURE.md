@@ -18,6 +18,7 @@ Feature modules must not import the application composition root. Shared behavio
 
 - `auth` — login, registration, and PIN entry.
 - `analyses` — list/dynamics, upload/recognition, details, and reports.
+- OCR upload returns immediately; `application/App.tsx` polls only while queued jobs exist, updates progress cards, and exposes completion through an actionable in-app notification.
 - `ai` — AI conversations.
 - `chat` — doctor and support conversations.
 - `clinic` — doctors, appointments, schedules, patients, and article management.
