@@ -10,6 +10,12 @@ export function AvatarView({user,size=44}:{user:User;size?:number}){
   const url=api.avatarURL(user);const preset=user.avatar_preset;const presetIcon=(preset==="leaf"?"leaf":preset==="heart"?"heart":preset==="sun"?"sunny":"person") as keyof typeof Ionicons.glyphMap;
   return <View style={[s.avatarView,{width:size,height:size,borderRadius:size*.34}]}>{url?<Image source={{uri:url}} style={{width:size,height:size,borderRadius:size*.34}}/>:preset?<Ionicons name={presetIcon} size={size*.48} color={colors.violet}/>:<Text style={[s.avatarText,{fontSize:size*.32}]}>{initials(user.full_name)}</Text>}</View>
 }
+export function BackButton({onPress,label="Назад"}:{onPress:()=>void;label?:string}){
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={8} onPress={onPress} style={({pressed})=>[s.iconButton,pressed&&s.pressablePressed]}><Ionicons name="arrow-back" size={24} color={colors.ink}/></Pressable>
+}
+export function ScreenHeader({title,onBack}:{title:string;onBack:()=>void}){
+  return <View style={s.fullScreenHeader}><BackButton onPress={onBack}/><Text numberOfLines={2} style={s.fullScreenTitle}>{title}</Text><View style={s.headerSpacer}/></View>
+}
 export function MiniAction({label,onPress,icon}:{label:string;onPress:()=>void;icon?:keyof typeof Ionicons.glyphMap}){return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={s.miniAction}>{icon&&<Ionicons name={icon} size={16} color={colors.brand}/>}<Text style={s.miniActionText}>{label}</Text></Pressable>}
 export function AIList({title,items}:{title:string;items?:string[]}){if(!items?.length)return null;return <View style={s.aiList}><Text style={s.replyLabel}>{title}</Text>{items.map((x,i)=><Text key={i} style={s.body}>• {x}</Text>)}</View>}
 export function Field(props: any) {
