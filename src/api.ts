@@ -127,8 +127,9 @@ export const api = {
     }
     return request<Analysis>("/analyses", { method: "POST", body: form });
   },
-  confirmAnalysis: (analysisID: string, markers: Analysis["markers"]) =>
-    request<Analysis>(`/analyses/${analysisID}/confirm`, { method: "POST", body: JSON.stringify({ markers }) }),
+  analysis: (analysisID: string) => request<Analysis>(`/analyses/${analysisID}`),
+  confirmAnalysis: (analysisID: string, markers: Analysis["markers"], report?: Analysis["report"]) =>
+    request<Analysis>(`/analyses/${analysisID}/confirm`, { method: "POST", body: JSON.stringify({ markers, report }) }),
   reprocessAnalysis: (analysisID: string) =>
     request<Analysis>(`/analyses/${analysisID}/reprocess`, { method: "POST" }),
   deleteAnalysis: (analysisID: string) =>

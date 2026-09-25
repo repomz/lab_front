@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { api } from "../../api";
-import { Analysis, User } from "../../types";
+import { Analysis, StudyReport, User } from "../../types";
 import { colors } from "../../theme";
 import { s } from "../../styles";
 import { Action, Button, Empty, analysisDate, date } from "../../components/ui";
@@ -33,6 +33,7 @@ export function AnalysisDetail({
   const [exporting, setExporting] = useState<"share" | "view" | "print" | null>(null);
   const [pdfURI, setPdfURI] = useState("");
   const [markers, setMarkers] = useState(item?.markers || []);
+  const [studyReport, setStudyReport] = useState<StudyReport | undefined>(item?.report);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   useEffect(() => () => {
@@ -40,6 +41,7 @@ export function AnalysisDetail({
   }, [pdfURI]);
   useEffect(() => {
     setMarkers(item?.markers || []);
+    setStudyReport(item?.report);
     setEditing(false);
   }, [item?.id, item?.status, item?.updated_at]);
   if (!item) return null;
@@ -62,11 +64,14 @@ export function AnalysisDetail({
     const parsed = Number(raw.replace(",", "."));
     setMarkers((current) => current.map((marker, markerIndex) => markerIndex === index ? { ...marker, value: raw.trim() === "" || !Number.isFinite(parsed) ? undefined : parsed } : marker));
   }
+  function changeTextValue(index: number, textValue: string) {
+    setMarkers((current) => current.map((marker, markerIndex) => markerIndex === index ? { ...marker, text_value: textValue } : marker));
+  }
   async function confirmMarkers() {
     if (saving) return;
     setSaving(true);
     try {
-      onChanged(await api.confirmAnalysis(active.id, markers));
+      onChanged(await api.confirmAnalysis(active.id, markers, studyReport));
     } catch (error) {
       onError(error instanceof Error ? error.message : "Не удалось утвердить показатели");
     } finally {
@@ -176,9 +181,18 @@ export function AnalysisDetail({
   </Modal>;
   if (needsVerification) return <Modal visible animationType="slide" onRequestClose={onClose}>
     <SafeAreaView style={s.fullScreenModal}>
-      <View style={s.verifyHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25}/></Pressable><View style={{flex:1}}><Text style={s.fullScreenTitle}>Проверьте показатели</Text><Text style={s.analysisMeta}>{active.collected_at ? `Дата исследования: ${date(active.collected_at)}` : "Дата исследования не указана в бланке"}</Text></View></View>
-      <Text style={s.verifyIntro}>Сравните значения и лабораторные референсы с исходным бланком. Резюме будет создано только после подтверждения.</Text>
-      <ScrollView contentContainerStyle={s.verifyMarkers}>{markers.map((marker,index)=><View key={`${marker.canonical_name}-${index}`} style={s.verifyMarkerRow}><View style={s.verifyMarkerName}><Text style={s.markerName}>{marker.name}</Text><Text style={s.analysisMeta}>{marker.unit||""}</Text></View>{editing?<TextInput accessibilityLabel={`Значение ${marker.name}`} keyboardType="decimal-pad" style={s.verifyValueInput} value={marker.value === undefined ? "" : String(marker.value).replace(".",",")} onChangeText={(value)=>changeValue(index,value)}/>:<Text style={s.verifyMarkerValue}>{marker.value ?? marker.text_value ?? "—"}</Text>}<Text numberOfLines={2} style={s.verifyMarkerReference}>{marker.reference_text||[marker.reference_min,marker.reference_max].filter(value=>value!==undefined).join(" — ")||"—"}</Text></View>)}</ScrollView>
+      <View style={s.verifyHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25}/></Pressable><View style={{flex:1}}><Text style={s.fullScreenTitle}>{studyReport ? "Проверьте исследование" : "Проверьте показатели"}</Text><Text style={s.analysisMeta}>{active.collected_at ? `Дата исследования: ${date(active.collected_at)}` : "Дата исследования не указана в бланке"}</Text></View></View>
+      <Text style={s.verifyIntro}>{studyReport ? "Сверьте описание и заключение с исходным документом. Отсутствующий на фото текст приложение не дополняет." : "Сравните значения и лабораторные референсы с исходным бланком. Резюме будет создано только после подтверждения."}</Text>
+      <ScrollView contentContainerStyle={s.verifyMarkers}>{studyReport ? <View style={s.reportVerifyCard}>
+        <Text style={s.reportFieldLabel}>Название исследования</Text>
+        {editing ? <TextInput style={s.reportTitleInput} value={studyReport.study_name} onChangeText={(study_name)=>setStudyReport(current=>current?{...current,study_name}:current)}/> : <Text style={s.reportTitle}>{studyReport.study_name}</Text>}
+        <Text style={s.reportFieldLabel}>Описание</Text>
+        {editing ? <TextInput multiline style={s.reportTextInput} value={studyReport.description} onChangeText={(description)=>setStudyReport(current=>current?{...current,description}:current)}/> : <Text style={s.reportText}>{studyReport.description || "Описание не распознано"}</Text>}
+        <Text style={s.reportFieldLabel}>Заключение</Text>
+        {editing ? <TextInput multiline style={s.reportTextInput} placeholder="На предоставленном фрагменте отсутствует" value={studyReport.conclusion || ""} onChangeText={(conclusion)=>setStudyReport(current=>current?{...current,conclusion}:current)}/> : <Text style={s.reportConclusion}>{studyReport.conclusion || "Заключение отсутствует в предоставленном фрагменте"}</Text>}
+        {studyReport.warnings?.map((warning,index)=><Text key={index} style={s.reportWarning}>• {warning}</Text>)}
+        <Button kind="ghost" label="Открыть исходный файл" icon="document-outline" onPress={()=>void Linking.openURL(api.fileURL(active.id))}/>
+      </View> : markers.map((marker,index)=><View key={`${marker.canonical_name}-${index}`} style={s.verifyMarkerRow}><View style={s.verifyMarkerName}><Text style={s.markerName}>{marker.name}</Text><Text style={s.analysisMeta}>{marker.unit||""}</Text>{(marker.confidence ?? 1)<0.7&&<Text style={s.markerCheckHint}>Сверьте с бланком</Text>}</View>{editing?<TextInput accessibilityLabel={`Значение ${marker.name}`} keyboardType={marker.value === undefined ? "default" : "decimal-pad"} style={s.verifyValueInput} value={marker.value === undefined ? marker.text_value || "" : String(marker.value).replace(".",",")} onChangeText={(value)=>marker.value === undefined?changeTextValue(index,value):changeValue(index,value)}/>:<Text style={s.verifyMarkerValue}>{marker.value ?? marker.text_value ?? "—"}</Text>}<Text numberOfLines={2} style={s.verifyMarkerReference}>{marker.reference_text||[marker.reference_min,marker.reference_max].filter(value=>value!==undefined).join(" — ")||"—"}</Text></View>)}</ScrollView>
       <View style={s.verifyFooter}>{saving?<View style={s.confirmProgress}><ActivityIndicator color={colors.violet}/><Text style={s.progressLabel}>Формируем резюме…</Text></View>:<View style={s.verifyActions}><View style={s.verifyActionCell}><Button kind="ghost" label={editing?"Завершить правки":"Внести изменения"} icon="create-outline" onPress={()=>setEditing(value=>!value)}/></View><View style={s.verifyActionCell}><Button label="Утвердить" icon="checkmark" onPress={()=>void confirmMarkers()}/></View></View>}</View>
     </SafeAreaView>
   </Modal>;
@@ -212,7 +226,7 @@ export function AnalysisDetail({
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
           >
-            {active.markers.length ? (
+            {active.report ? <View style={s.reportDetailCard}><Text style={s.reportTitle}>{active.report.study_name}</Text><Text style={s.reportFieldLabel}>Описание</Text><Text style={s.reportText}>{active.report.description || "Описание отсутствует"}</Text><Text style={s.reportFieldLabel}>Заключение</Text><Text style={s.reportConclusion}>{active.report.conclusion || "Заключение отсутствует в предоставленном фрагменте"}</Text></View> : active.markers.length ? (
               active.markers.map((m, i) => (
                 <View
                   key={`${m.name}-${i}`}

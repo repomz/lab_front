@@ -29,10 +29,12 @@ export function UploadModal({
   const [asset, setAsset] = useState<Asset | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [job, setJob] = useState<Analysis | null>(null);
   useEffect(() => {
     if (visible) {
       setAsset(seed?.uri ? seed : null);
       setError("");
+      setJob(null);
     }
   }, [visible, seed]);
   async function camera() {
@@ -106,7 +108,20 @@ export function UploadModal({
     setBusy(true);
     setError("");
     try {
-      const result = await api.upload(asset);
+      let result = await api.upload(asset);
+      setJob(result);
+      let failures = 0;
+      while (result.status === "queued" || result.status === "processing") {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        try {
+          result = await api.analysis(result.id);
+          setJob(result);
+          failures = 0;
+        } catch (pollError) {
+          failures += 1;
+          if (failures >= 4) throw pollError;
+        }
+      }
       onDone(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
@@ -118,7 +133,7 @@ export function UploadModal({
     <Modal
       visible={visible}
       animationType="slide"
-      onRequestClose={onClose}
+      onRequestClose={() => { if (!busy) onClose(); }}
     >
       <SafeAreaView style={s.fullScreenModal}>
         <View style={[s.uploadSheet, compact && s.uploadSheetCompact]}>
@@ -128,6 +143,7 @@ export function UploadModal({
               accessibilityLabel="Назад"
               hitSlop={10}
               style={s.iconButton}
+              disabled={busy}
               onPress={onClose}
             >
               <Ionicons name="arrow-back" size={25} color={colors.ink} />
@@ -135,11 +151,11 @@ export function UploadModal({
             <Text style={s.fullScreenTitle}>Добавить результат</Text><View style={s.headerSpacer}/>
           </View>
           <Text style={s.cardHint}>Сфотографируйте бланк или выберите изображение/PDF.</Text>
-          <View style={s.sourceRow}>
+          {!busy && <View style={s.sourceRow}>
             <Source icon="camera-outline" label="Камера" onPress={camera} />
             <Source icon="images-outline" label="Галерея" onPress={gallery} />
             <Source icon="folder-open-outline" label="Файлы" onPress={files} />
-          </View>
+          </View>}
           {asset && (
             <View style={s.fileChosen}>
               <Ionicons
@@ -163,12 +179,13 @@ export function UploadModal({
           {error ? <Text style={s.error}>{error}</Text> : null}
           {busy && (
             <View style={s.progressPanel} accessibilityRole="progressbar">
-              <View style={s.progressLabelRow}><ActivityIndicator size="small" color={colors.brand}/><Text style={s.progressLabel}>Загружаем документ…</Text></View>
-              <Text style={s.progressHint}>После загрузки можно продолжить работу — распознавание выполнится в фоне.</Text>
+              <View style={s.progressLabelRow}><ActivityIndicator size="small" color={colors.brand}/><Text style={s.progressLabel}>{job ? ({queued:"Документ принят",retry_wait:"Повторяем распознавание",preprocessing:"Подготавливаем изображение",recognizing:"Распознаём документ",structuring:"Разбираем результат",finalizing:"Проверяем данные"} as Record<string,string>)[job.processing_stage || job.status] || "Завершаем обработку" : "Загружаем документ…"}</Text></View>
+              {job && <View style={s.jobProgressTrack}><View style={[s.jobProgressFill,{width:`${Math.max(5,Math.min(100,job.processing_progress || 5))}%`}]}/></View>}
+              <Text style={s.progressHint}>{job ? `Шаг выполняется на сервере · ${job.processing_progress || 5}%` : "Не закрывайте экран: после распознавания сразу откроется проверка результата."}</Text>
             </View>
           )}
           <Button
-            label={busy ? "Загружаем…" : "Загрузить документ"}
+            label={busy ? "Идёт распознавание…" : "Распознать документ"}
             disabled={busy}
             onPress={submit}
           />

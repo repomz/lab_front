@@ -281,7 +281,7 @@ function AppContent() {
           setUpload(null);
           setTab("analyses");
 		  setAnalyses(current=>[result,...current.filter(item=>item.id!==result.id)]);
-		  setJobNotice({analysis:result,title:"Документ загружен",text:"Распознавание идёт в фоне. Можно продолжить работу."});
+		  setSelected(result);
         }}
       />
       <AnalysisDetail

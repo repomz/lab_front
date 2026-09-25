@@ -1,4 +1,4 @@
-export const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.11.2";
+export const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.12.0";
 export const LAST_LOGIN_KEY = "lab.last-login";
 export const LAST_NAME_KEY = "lab.last-name";
 export const PATIENT_LOGIN_KEY = "lab.patient-login";

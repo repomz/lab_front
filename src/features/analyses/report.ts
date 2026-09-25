@@ -25,6 +25,9 @@ export function analysisReportHTML(analysis: Analysis) {
         })
         .join("")
     : '<tr><td colspan="4" class="empty">Показатели не распознаны</td></tr>';
+  const report = analysis.report
+    ? `<section class="report"><h3>Описание</h3><div class="report-text">${escapeHTML(analysis.report.description || "Описание отсутствует")}</div><h3>Заключение</h3><div class="conclusion">${escapeHTML(analysis.report.conclusion || "Заключение отсутствует в предоставленном фрагменте")}</div></section>`
+    : `<table><thead><tr><th>Показатель</th><th>Результат</th><th>Референс</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table>`;
   return `<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"><style>
   @page { margin: 18mm 14mm; }
@@ -42,12 +45,15 @@ export function analysisReportHTML(analysis: Analysis) {
   .status { display: inline-block; padding: 4px 7px; border-radius: 8px; color: #176452; background: #e4f5ef; font-size: 10px; font-weight: 700; white-space: nowrap; }
   .status.high, .status.low, .status.unknown { color: #9a5b12; background: #fff1da; }
   .empty { padding: 24px; color: #657086; text-align: center; }
+  .report h3 { margin: 18px 0 7px; font-size: 13px; }
+  .report-text { white-space: pre-wrap; line-height: 1.6; }
+  .conclusion { padding: 12px; border-radius: 10px; background: #efecfb; white-space: pre-wrap; line-height: 1.55; font-weight: 700; }
   .note { margin-top: 20px; color: #657086; font-size: 10px; line-height: 1.5; }
 </style></head><body>
-  <div class="header"><div class="brand">Lab · медицинские документы</div><h1>Результаты лабораторного анализа</h1></div>
+  <div class="header"><div class="brand">Lab · медицинские документы</div><h1>${analysis.report ? "Результат медицинского исследования" : "Результаты лабораторного анализа"}</h1></div>
   <h2>${escapeHTML(analysis.title)}</h2>
   <div class="meta">Дата исследования: ${escapeHTML(date(analysisDate(analysis)))}</div>
-  <table><thead><tr><th>Показатель</th><th>Результат</th><th>Референс</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table>
+  ${report}
   <div class="note">Документ содержит автоматически распознанные данные. Сверяйте значения с оригинальным бланком и обсуждайте медицинские решения с врачом.</div>
 </body></html>`;
 }
