@@ -29,12 +29,10 @@ export function UploadModal({
   const [asset, setAsset] = useState<Asset | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [job, setJob] = useState<Analysis | null>(null);
   useEffect(() => {
     if (visible) {
       setAsset(seed?.uri ? seed : null);
       setError("");
-      setJob(null);
     }
   }, [visible, seed]);
   async function camera() {
@@ -108,20 +106,7 @@ export function UploadModal({
     setBusy(true);
     setError("");
     try {
-      let result = await api.upload(asset);
-      setJob(result);
-      let failures = 0;
-      while (result.status === "queued" || result.status === "processing") {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        try {
-          result = await api.analysis(result.id);
-          setJob(result);
-          failures = 0;
-        } catch (pollError) {
-          failures += 1;
-          if (failures >= 4) throw pollError;
-        }
-      }
+      const result = await api.upload(asset);
       onDone(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
@@ -179,13 +164,12 @@ export function UploadModal({
           {error ? <Text style={s.error}>{error}</Text> : null}
           {busy && (
             <View style={s.progressPanel} accessibilityRole="progressbar">
-              <View style={s.progressLabelRow}><ActivityIndicator size="small" color={colors.brand}/><Text style={s.progressLabel}>{job ? ({queued:"Документ принят",retry_wait:"Повторяем распознавание",preprocessing:"Подготавливаем изображение",recognizing:"Распознаём документ",structuring:"Разбираем результат",finalizing:"Проверяем данные"} as Record<string,string>)[job.processing_stage || job.status] || "Завершаем обработку" : "Загружаем документ…"}</Text></View>
-              {job && <View style={s.jobProgressTrack}><View style={[s.jobProgressFill,{width:`${Math.max(5,Math.min(100,job.processing_progress || 5))}%`}]}/></View>}
-              <Text style={s.progressHint}>{job ? `Шаг выполняется на сервере · ${job.processing_progress || 5}%` : "Не закрывайте экран: после распознавания сразу откроется проверка результата."}</Text>
+              <View style={s.progressLabelRow}><ActivityIndicator size="small" color={colors.brand}/><Text style={s.progressLabel}>Распознаём и проверяем документ</Text></View>
+              <Text style={s.progressHint}>Не закрывайте экран. Оригинал, все показатели, лабораторные референсы и итоговое резюме обрабатываются одним непрерывным запросом.</Text>
             </View>
           )}
           <Button
-            label={busy ? "Идёт распознавание…" : "Распознать документ"}
+            label={busy ? "Анализируем документ…" : "Распознать документ"}
             disabled={busy}
             onPress={submit}
           />
