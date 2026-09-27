@@ -142,7 +142,7 @@ export function UploadModal({
             </Pressable>
             <Text style={s.fullScreenTitle}>Добавить результат</Text><View style={s.headerSpacer}/>
           </View>
-          <Text style={s.cardHint}>Сфотографируйте бланк или выберите изображение/PDF.</Text>
+          <Text style={s.cardHint}>Выберите фото или PDF (до 10 страниц). Если в файле несколько разных исследований, каждое будет сохранено отдельно.</Text>
           {!busy && <View style={s.sourceRow}>
             <Source icon="camera-outline" label="Камера" onPress={camera} />
             <Source icon="images-outline" label="Галерея" onPress={gallery} />

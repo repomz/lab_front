@@ -14,7 +14,7 @@ export const s = StyleSheet.create({
   shell: { flex: 1, width: "100%", flexDirection: "row", overflow: "hidden", backgroundColor: "transparent" },
   main: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden", position: "relative", backgroundColor: "transparent" },
   content: { flex: 1, minWidth: 0, maxWidth: "100%", backgroundColor: "transparent" },
-  scrollViewport: Platform.OS === "web" ? ({ overscrollBehavior: "contain", overscrollBehaviorY: "contain" } as any) : {},
+  scrollViewport: Platform.OS === "web" ? ({ overscrollBehavior: "none", overscrollBehaviorY: "none", minHeight: 0 } as any) : {},
   top: {
     height: 58,
     paddingHorizontal: 28,
@@ -1085,7 +1085,8 @@ export const s = StyleSheet.create({
   specialtyLine: { color: colors.brand, fontSize: 12, fontWeight: "700", marginTop: 7 },
   analysisGroups: { gap: 22 },
   uploadInline: { padding: 5, borderRadius: 20, backgroundColor: "rgba(255,255,255,.72)", borderWidth: 1, borderColor: "rgba(255,255,255,.9)", ...shadow },
-  rubricBar: { gap: 8, paddingVertical: 2, paddingRight: 12 },
+  rubricViewport: { height: 44, minHeight: 44, maxHeight: 44, flexGrow: 0, flexShrink: 0 },
+  rubricBar: { gap: 8, paddingVertical: 2, paddingRight: 12, alignItems: "center" },
   rubricChip: { minHeight: 40, paddingHorizontal: 14, borderRadius: 14, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(255,255,255,.62)", borderWidth: 1, borderColor: colors.line },
   rubricChipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
   rubricChipText: { color: colors.muted, fontSize: 13, fontWeight: "800" },

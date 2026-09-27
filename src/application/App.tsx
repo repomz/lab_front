@@ -18,6 +18,7 @@ import { AIWorkspace } from "../features/ai/AIWorkspace";
 import { AnalysisDetail } from "../features/analyses/AnalysisDetail";
 import { Analyses, isProcessingAnalysis } from "../features/analyses/AnalysesScreen";
 import { Asset, UploadModal } from "../features/analyses/UploadAnalysis";
+import { StudyResults, unpackStudies } from "../features/analyses/StudyResults";
 import { DoctorConsultationInbox, PatientDoctorChats } from "../features/chat/Chats";
 import { AdminDashboard, AdminPreviewControl, Home } from "../features/home/HomeScreen";
 import { ArticleManager, DoctorPatients, DoctorSchedule, DoctorsScreen } from "../features/clinic/ClinicScreens";
@@ -72,6 +73,7 @@ function AppContent() {
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [selected, setSelected] = useState<Analysis | null>(null);
+  const [studyResults, setStudyResults] = useState<Analysis[]>([]);
   const [upload, setUpload] = useState<Asset | null>(null);
   const [error, setError] = useState("");
   const [focusVisit, setFocusVisit] = useState<Consultation | null>(null);
@@ -153,6 +155,7 @@ function AppContent() {
       try {
         await api.deleteAnalysis(item.id);
         if (selected?.id === item.id) setSelected(null);
+        setStudyResults(current=>current.filter(result=>result.id!==item.id));
         await refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Не удалось удалить анализ");
@@ -280,18 +283,23 @@ function AppContent() {
         onDone={async (result) => {
           setUpload(null);
           setTab("analyses");
-		  setAnalyses(current=>[result,...current.filter(item=>item.id!==result.id)]);
-		  setSelected(result);
+          const results = unpackStudies(result);
+          setAnalyses(current=>[...results,...current.filter(item=>!results.some(result=>result.id===item.id))]);
+          if (results.length > 1) setStudyResults(results);
+          else setSelected(results[0]);
         }}
       />
+      <StudyResults studies={studyResults} onClose={()=>setStudyResults([])} onOpen={setSelected}/>
       <AnalysisDetail
         item={selected}
         user={user}
         onClose={() => setSelected(null)}
         onDelete={user.role === "patient" && selected ? () => requestDelete(selected) : undefined}
         onChanged={async (updated) => {
-		  setAnalyses(current=>current.map(item=>item.id===updated.id?updated:item));
-		  setSelected(updated);
+          const results = unpackStudies(updated);
+          setAnalyses(current=>[...results,...current.filter(item=>!results.some(result=>result.id===item.id))]);
+          if (results.length > 1) { setSelected(null); setStudyResults(results); }
+          else { setSelected(results[0]); setStudyResults(current=>current.map(item=>item.id===updated.id?results[0]:item)); }
 		  if(updated.status==="ready")setJobNotice({analysis:updated,title:"Результат сохранён",text:"Резюме сформировано и доступно для просмотра."});
         }}
         onError={setError}

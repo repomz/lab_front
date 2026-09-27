@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -48,6 +48,7 @@ export function Analyses({
   const [marker, setMarker] = useState("");
   const [dynamicQuery, setDynamicQuery] = useState("");
   const categories = useMemo(() => rubricOrder.filter((category) => data.some((analysis) => analysis.status === "ready" && (analysis.category || "Другие анализы") === category)), [data]);
+  useEffect(() => { if (rubric !== "Все" && !categories.includes(rubric)) setRubric("Все"); }, [categories, rubric]);
   const groups = useMemo(() => {
     const grouped = new Map<string, Analysis[]>();
     data.forEach((analysis) => {
@@ -82,7 +83,7 @@ export function Analyses({
     <View style={s.analysisPage}>
     <ScrollView contentContainerStyle={[s.primaryTabScroll, compact && s.primaryTabScrollCompact, wide && s.primaryTabScrollWide, s.analysisScrollContent, !doctor && mode === "research" && desktop && s.analysisScrollWithDockDesktop]}>
       {!doctor && <View style={s.segment}><Segment active={mode === "research"} label="Исследования" icon="documents-outline" onPress={() => setMode("research")} /><Segment active={mode === "dynamics"} label="Динамика" icon="stats-chart-outline" onPress={() => setMode("dynamics")} /></View>}
-      {(doctor || mode === "research") && categories.length > 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.rubricBar}>
+      {(doctor || mode === "research") && categories.length > 1 ? <ScrollView horizontal style={s.rubricViewport} showsHorizontalScrollIndicator={false} contentContainerStyle={s.rubricBar}>
         {["Все", ...categories].map((category) => { const active = rubric === category; const meta = rubricMeta[category]; return <Pressable key={category} accessibilityRole="button" accessibilityState={{selected:active}} onPress={()=>setRubric(category)} style={({pressed})=>[s.rubricChip,active&&s.rubricChipActive,pressed&&s.pressablePressed]}>{meta ? <Ionicons name={meta.icon} size={17} color={active?colors.white:colors.muted}/> : null}<Text style={[s.rubricChipText,active&&s.rubricChipTextActive]}>{category}</Text></Pressable>; })}
       </ScrollView> : null}
       {!doctor && mode === "research" && !desktop ? <View nativeID="analysis-upload-inline" style={s.uploadInline}><Button label="Загрузить анализ" kind="primary" icon="cloud-upload-outline" onPress={onUpload}/></View> : null}

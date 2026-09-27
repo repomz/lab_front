@@ -12,6 +12,7 @@ export const ScrollView = React.forwardRef<React.ComponentRef<typeof NativeScrol
     style={[s.scrollViewport, style]}
     bounces={false}
     alwaysBounceVertical={false}
+    alwaysBounceHorizontal={false}
     overScrollMode="never"
   />
 ));
@@ -23,6 +24,44 @@ export function Modal(props: React.ComponentProps<typeof NativeModal>) {
   return <NativeModal {...props} />;
 }
 export function SystemChrome({ dark, background, canvas = background, canvasGradient = false }: { dark: boolean; background: string; canvas?: string; canvasGradient?: boolean | "light" }) {
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    // WebKit versions that ignore overscroll-behavior still rubber-band at
+    // scroll boundaries. Permit gestures only when a scrollable ancestor has
+    // room in that direction, including portalled modals and text areas.
+    let lastX = 0, lastY = 0;
+    const start = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (event.touches.length === 1 && touch) { lastX = touch.clientX; lastY = touch.clientY; }
+    };
+    const move = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      const dx = touch.clientX - lastX, dy = touch.clientY - lastY;
+      lastX = touch.clientX; lastY = touch.clientY;
+      const horizontal = Math.abs(dx) > Math.abs(dy), delta = horizontal ? dx : dy;
+      if (!delta) return;
+      for (const node of event.composedPath()) {
+        if (!(node instanceof HTMLElement)) continue;
+        const style = getComputedStyle(node);
+        const overflow = horizontal ? style.overflowX : style.overflowY;
+        if (!/auto|scroll/.test(overflow)) continue;
+        const max = horizontal ? node.scrollWidth - node.clientWidth : node.scrollHeight - node.clientHeight;
+        const position = horizontal ? node.scrollLeft : node.scrollTop;
+        if (max > 1 && (delta > 0 ? position > 0 : position < max - 1)) return;
+        // A scroll view at its boundary must not drag the view behind a modal.
+        if (max > 1) break;
+      }
+      if (event.cancelable) event.preventDefault();
+    };
+    document.addEventListener("touchstart", start, { passive: true });
+    document.addEventListener("touchmove", move, { passive: false });
+    return () => {
+      document.removeEventListener("touchstart", start);
+      document.removeEventListener("touchmove", move);
+    };
+  }, []);
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
     const ensureMeta = (name: string, content: string) => {
