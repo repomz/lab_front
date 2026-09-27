@@ -10,6 +10,7 @@ import { colors } from "../../theme";
 import { s } from "../../styles";
 import { Button, Source } from "../../components/ui";
 import { Modal } from "../../components/platform";
+import { AIProcessingConsentControl } from "./AIProcessingConsent";
 
 export type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
 
@@ -29,10 +30,12 @@ export function UploadModal({
   const [asset, setAsset] = useState<Asset | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [aiProcessingConsent, setAIProcessingConsent] = useState(false);
   useEffect(() => {
     if (visible) {
       setAsset(seed?.uri ? seed : null);
       setError("");
+      setAIProcessingConsent(false);
     }
   }, [visible, seed]);
   async function camera() {
@@ -103,10 +106,14 @@ export function UploadModal({
       setError("Сначала выберите файл.");
       return;
     }
+    if (!aiProcessingConsent) {
+      setError("Подтвердите передачу документа внешнему AI-сервису.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      const result = await api.upload(asset);
+      const result = await api.upload(asset, aiProcessingConsent);
       onDone(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
@@ -162,6 +169,9 @@ export function UploadModal({
             </View>
           )}
           {error ? <Text style={s.error}>{error}</Text> : null}
+          {!busy && (
+            <AIProcessingConsentControl checked={aiProcessingConsent} onChange={setAIProcessingConsent}/>
+          )}
           {busy && (
             <View style={s.progressPanel} accessibilityRole="progressbar">
               <View style={s.progressLabelRow}><ActivityIndicator size="small" color={colors.brand}/><Text style={s.progressLabel}>Распознаём и проверяем документ</Text></View>
@@ -170,7 +180,7 @@ export function UploadModal({
           )}
           <Button
             label={busy ? "Анализируем документ…" : "Распознать документ"}
-            disabled={busy}
+            disabled={busy || !asset || !aiProcessingConsent}
             onPress={submit}
           />
         </View>

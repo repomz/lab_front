@@ -245,7 +245,7 @@ function AppContent() {
     ) : tab === "guides" ? (
       <DoctorConsultationInbox data={consultations} compact={compact} onRefresh={()=>refresh()} />
     ) : tab === "articles" ? (
-      <ArticleManager />
+      <ArticleManager user={user}/>
     ) : user.role === "patient" ? (
       <PatientDoctorChats data={consultations} initial={focusVisit} onConsumed={()=>setFocusVisit(null)} onRefresh={()=>refresh()} compact={compact}/>
     ) : (

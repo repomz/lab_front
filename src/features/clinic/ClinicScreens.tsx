@@ -135,9 +135,9 @@ export function DoctorPatients({ patientsAnalyses, consultations, onOpen, onRefr
 
 
 const newArticle=():ClinicalArticle=>({id:"",title:"",summary:"",cover_url:"",published:false,blocks:[],created_at:"",updated_at:""});
-export function ArticleManager(){
+export function ArticleManager({user}:{user:User}){
   const [items,setItems]=useState<ClinicalArticle[]>([]);const [editing,setEditing]=useState<ClinicalArticle|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState("");
-  const load=()=>api.articles().then(setItems).catch(e=>setError(e instanceof Error?e.message:"Не удалось загрузить публикации"));useEffect(()=>{void load()},[]);
+  const load=()=>api.articles().then(list=>setItems(list.filter(item=>item.doctor_id===user.id))).catch(e=>setError(e instanceof Error?e.message:"Не удалось загрузить публикации"));useEffect(()=>{void load()},[user.id]);
   const update=(patch:Partial<ClinicalArticle>)=>setEditing(current=>current?{...current,...patch}:current);
   const updateBlock=(index:number,patch:Partial<ArticleBlock>)=>setEditing(current=>current?{...current,blocks:current.blocks.map((block,i)=>i===index?{...block,...patch}:block)}:current);
   const addBlock=(type:"text"|"image")=>setEditing(current=>current?{...current,blocks:[...current.blocks,{id:`block-${Date.now()}-${current.blocks.length}`,type,text:"",image_url:"",caption:""}]}:current);

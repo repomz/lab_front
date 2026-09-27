@@ -105,8 +105,10 @@ export const api = {
   sendSupportMessage: (text: string, userId?: string) => request<SupportMessage>("/support/messages", { method: "POST", body: JSON.stringify({ text, userId }) }),
   upload: async (
     asset: { uri: string; name: string; mimeType?: string; file?: Blob },
+    aiProcessingConsent: boolean,
   ) => {
     const form = new FormData();
+    form.append("aiProcessingConsent", String(aiProcessingConsent));
     if (Platform.OS === "web") {
       let file = asset.file;
       if (!file) {
@@ -130,8 +132,8 @@ export const api = {
   analysis: (analysisID: string) => request<Analysis>(`/analyses/${analysisID}`),
   confirmAnalysis: (analysisID: string, markers: Analysis["markers"], report?: Analysis["report"]) =>
     request<Analysis>(`/analyses/${analysisID}/confirm`, { method: "POST", body: JSON.stringify({ markers, report }) }),
-  reprocessAnalysis: (analysisID: string) =>
-    request<Analysis>(`/analyses/${analysisID}/reprocess`, { method: "POST" }),
+  reprocessAnalysis: (analysisID: string, aiProcessingConsent: boolean) =>
+    request<Analysis>(`/analyses/${analysisID}/reprocess`, { method: "POST", body: JSON.stringify({ aiProcessingConsent }) }),
   deleteAnalysis: (analysisID: string) =>
     request<void>(`/analyses/${analysisID}`, { method: "DELETE" }),
   share: (analysisID: string, doctorID: string) =>

@@ -11,6 +11,7 @@ import { s } from "../../styles";
 import { Action, Button, Empty, analysisDate, date } from "../../components/ui";
 import { Modal, ScrollView } from "../../components/platform";
 import { analysisReportHTML } from "./report";
+import { AIProcessingConsentDialog } from "./AIProcessingConsent";
 
 export function AnalysisDetail({
   item,
@@ -36,6 +37,7 @@ export function AnalysisDetail({
   const [studyReport, setStudyReport] = useState<StudyReport | undefined>(item?.report);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reprocessConsentOpen, setReprocessConsentOpen] = useState(false);
   useEffect(() => () => {
     if (pdfURI.startsWith("blob:")) URL.revokeObjectURL(pdfURI);
   }, [pdfURI]);
@@ -82,7 +84,8 @@ export function AnalysisDetail({
     if (saving) return;
     setSaving(true);
     try {
-      onChanged(await api.reprocessAnalysis(active.id));
+      onChanged(await api.reprocessAnalysis(active.id, true));
+      setReprocessConsentOpen(false);
     } catch (error) {
       onError(error instanceof Error ? error.message : "Не удалось повторить обработку");
     } finally {
@@ -165,7 +168,7 @@ export function AnalysisDetail({
       setExporting(null);
     }
   }
-  if (processing || active.status === "failed" || needsManualReview) return <Modal visible animationType="slide" onRequestClose={onClose}>
+  if (processing || active.status === "failed" || needsManualReview) return <><Modal visible animationType="slide" onRequestClose={onClose}>
     <SafeAreaView edges={["top"]} style={s.fullScreenModal}>
       <View style={s.fullScreenInner}>
         <View style={s.detailHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" hitSlop={10} style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25}/></Pressable><View style={{flex:1}}><Text style={s.eyebrow}>{active.original_name}</Text><Text style={s.cardTitle}>{processing ? "Обработка анализа" : active.status === "failed" ? "Не удалось обработать" : "Нужна ручная проверка"}</Text></View><View style={s.headerSpacer}/></View>
@@ -173,12 +176,12 @@ export function AnalysisDetail({
           <View style={[s.processingHero, active.status === "failed" && s.processingHeroFailed]}>{processing ? <ActivityIndicator size="large" color={colors.brand}/> : <Ionicons name={active.status === "failed" ? "alert-circle-outline" : "document-text-outline"} size={48} color={active.status === "failed" ? colors.coral : colors.violet}/>}<Text style={s.processingTitle}>{stageLabels[active.processing_stage || active.status] || "Обрабатываем документ"}</Text><Text style={s.processingCopy}>{processing ? "Можно закрыть экран и продолжить работу. Мы сообщим, когда результат будет готов." : active.processing_error || "Показатели не удалось уверенно выделить автоматически. Попробуйте более чёткий файл."}</Text></View>
           {processing && <View style={s.jobProgressTrack}><View style={[s.jobProgressFill,{width:`${Math.max(5,Math.min(100,active.processing_progress || 5))}%`}]}/></View>}
           {processing && <Text style={s.processingMeta}>Попытка {Math.max(1, active.processing_attempt || 1)} · {active.processing_progress || 5}%</Text>}
-          {!processing && <View style={s.processingActions}><Button label={saving ? "Ставим в очередь…" : "Повторить обработку"} icon="refresh-outline" disabled={saving} onPress={()=>void reprocess()}/><Button kind="ghost" label="Открыть исходный файл" icon="document-outline" onPress={()=>void Linking.openURL(api.fileURL(active.id))}/></View>}
+          {!processing && <View style={s.processingActions}><Button label={saving ? "Обрабатываем…" : "Повторить обработку"} icon="refresh-outline" disabled={saving} onPress={()=>setReprocessConsentOpen(true)}/><Button kind="ghost" label="Открыть исходный файл" icon="document-outline" onPress={()=>void Linking.openURL(api.fileURL(active.id))}/></View>}
         </View>
         <View style={[s.detailFooter,{paddingBottom:Math.max(insets.bottom,12)}]}><View style={s.actionRow}>{onDelete&&<Action icon="trash-outline" label="Удалить" danger onPress={onDelete}/>}<Action icon="close-outline" label="Закрыть" onPress={onClose}/></View></View>
       </View>
     </SafeAreaView>
-  </Modal>;
+  </Modal><AIProcessingConsentDialog visible={reprocessConsentOpen} busy={saving} onCancel={()=>setReprocessConsentOpen(false)} onConfirm={()=>void reprocess()}/></>;
   if (needsVerification) return <Modal visible animationType="slide" onRequestClose={onClose}>
     <SafeAreaView style={s.fullScreenModal}>
       <View style={s.verifyHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25}/></Pressable><View style={{flex:1}}><Text style={s.fullScreenTitle}>{studyReport ? "Проверьте исследование" : "Проверьте показатели"}</Text><Text style={s.analysisMeta}>{active.collected_at ? `Дата исследования: ${date(active.collected_at)}` : "Дата исследования не указана в бланке"}</Text></View></View>
