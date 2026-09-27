@@ -17,6 +17,10 @@ function readSourceTree(directory) {
 }
 
 const source = [readFileSync(resolve(root, "App.tsx"), "utf8"), ...readSourceTree(resolve(root, "src"))].join("\n");
+const webBundles = readdirSync(resolve(root, "dist/_expo/static/js/web"))
+  .filter((name) => name.endsWith(".js"))
+  .map((name) => readFileSync(resolve(root, "dist/_expo/static/js/web", name), "utf8"))
+  .join("\n");
 
 const requirements = [
   [html.includes("viewport-fit=cover"), "viewport-fit=cover is missing"],
@@ -30,6 +34,7 @@ const requirements = [
   [html.includes("#patient-home-lower") && html.includes("background-attachment: fixed"), "patient home lower canvas is not continuous"],
   [html.includes("background-color: transparent !important; background-image: none !important"), "body/root can repaint the physical canvas"],
   [source.includes(`|| "${version}"`), "visible application version and package version differ"],
+  [webBundles.includes(version), "compiled application version and package version differ"],
   [source.includes('mode==="research"') && source.includes('nativeID="analysis-upload-dock"'), "upload action is not limited to research mode"],
   [html.includes("#ai-action-dock") && html.includes("#booking-action-dock") && html.includes("+ 74px"), "mobile action docks are not separated from navigation"],
 ];
