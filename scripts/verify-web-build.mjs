@@ -35,7 +35,7 @@ const requirements = [
   [html.includes("background-color: transparent !important; background-image: none !important"), "body/root can repaint the physical canvas"],
   [source.includes(`|| "${version}"`), "visible application version and package version differ"],
   [webBundles.includes(version), "compiled application version and package version differ"],
-  [source.includes('mode==="research"') && source.includes('nativeID="analysis-upload-dock"'), "upload action is not limited to research mode"],
+  [source.includes('mode === "research"') && source.includes('nativeID="analysis-upload-inline"') && source.includes('nativeID="analysis-upload-dock"'), "responsive upload action is not limited to research mode"],
   [html.includes("#ai-action-dock") && html.includes("#booking-action-dock") && html.includes("+ 74px"), "mobile action docks are not separated from navigation"],
 ];
 

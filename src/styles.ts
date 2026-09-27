@@ -1084,6 +1084,7 @@ export const s = StyleSheet.create({
   healthSummaryHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   specialtyLine: { color: colors.brand, fontSize: 12, fontWeight: "700", marginTop: 7 },
   analysisGroups: { gap: 22 },
+  uploadInline: { padding: 5, borderRadius: 20, backgroundColor: "rgba(255,255,255,.72)", borderWidth: 1, borderColor: "rgba(255,255,255,.9)", ...shadow },
   rubricBar: { gap: 8, paddingVertical: 2, paddingRight: 12 },
   rubricChip: { minHeight: 40, paddingHorizontal: 14, borderRadius: 14, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(255,255,255,.62)", borderWidth: 1, borderColor: colors.line },
   rubricChipActive: { backgroundColor: colors.ink, borderColor: colors.ink },

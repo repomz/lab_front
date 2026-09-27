@@ -80,11 +80,12 @@ export function Analyses({
   const series = selectedMarker?.points || [];
   return (
     <View style={s.analysisPage}>
-    <ScrollView contentContainerStyle={[s.primaryTabScroll, compact && s.primaryTabScrollCompact, wide && s.primaryTabScrollWide, s.analysisScrollContent, !doctor && mode === "research" && (desktop ? s.analysisScrollWithDockDesktop : s.analysisScrollWithDockMobile)]}>
+    <ScrollView contentContainerStyle={[s.primaryTabScroll, compact && s.primaryTabScrollCompact, wide && s.primaryTabScrollWide, s.analysisScrollContent, !doctor && mode === "research" && desktop && s.analysisScrollWithDockDesktop]}>
       {!doctor && <View style={s.segment}><Segment active={mode === "research"} label="Исследования" icon="documents-outline" onPress={() => setMode("research")} /><Segment active={mode === "dynamics"} label="Динамика" icon="stats-chart-outline" onPress={() => setMode("dynamics")} /></View>}
       {(doctor || mode === "research") && categories.length > 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.rubricBar}>
         {["Все", ...categories].map((category) => { const active = rubric === category; const meta = rubricMeta[category]; return <Pressable key={category} accessibilityRole="button" accessibilityState={{selected:active}} onPress={()=>setRubric(category)} style={({pressed})=>[s.rubricChip,active&&s.rubricChipActive,pressed&&s.pressablePressed]}>{meta ? <Ionicons name={meta.icon} size={17} color={active?colors.white:colors.muted}/> : null}<Text style={[s.rubricChipText,active&&s.rubricChipTextActive]}>{category}</Text></Pressable>; })}
       </ScrollView> : null}
+      {!doctor && mode === "research" && !desktop ? <View nativeID="analysis-upload-inline" style={s.uploadInline}><Button label="Загрузить анализ" kind="primary" icon="cloud-upload-outline" onPress={onUpload}/></View> : null}
       {data.length && (doctor || mode === "research") ? (
         <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View>{rubricMeta[group]?.description ? <Text style={s.groupDescription}>{rubricMeta[group].description}</Text> : null}<View style={[s.compactCardGrid,wide&&s.compactCardGridWide]}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} wide={wide} onPress={() => onOpen(analysis)} />)}</View></View>)}</View>
       ) : data.length && mode === "dynamics" ? (
@@ -102,7 +103,7 @@ export function Analyses({
       )}
       <Modal visible={!!marker} animationType="slide" onRequestClose={()=>setMarker("")}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setMarker("")}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{selectedMarker?.name||"Динамика"}</Text><View style={s.headerSpacer}/></View><ScrollView bounces={false} contentContainerStyle={s.dynamicDetailBody}>{series.length ? <><View style={s.dynamicCurrent}><Text style={s.dynamicCurrentValue}>{series[series.length-1]?.value} {series[series.length-1]?.unit}</Text><Text style={s.analysisMeta}>Последний результат · {date(series[series.length-1]!.date)}</Text></View><DynamicsChart series={series}/><Text style={s.dynamicHistoryTitle}>История результатов</Text><View style={s.dynamicHistory}>{[...series].reverse().map((point,index)=><View key={`${point.date}-${index}`} style={s.dynamicHistoryRow}><View><Text style={s.dynamicHistoryDate}>{date(point.date)}</Text><Text style={[s.dynamicHistoryStatus,point.status!=="normal"&&{color:colors.coral}]}>{markerStatusText(point.status)} · {point.reference}</Text></View><Text style={s.dynamicHistoryValue}>{point.value} {point.unit}</Text></View>)}</View></>:null}</ScrollView></SafeAreaView></Modal>
     </ScrollView>
-    {!doctor && !marker && mode==="research" && <View nativeID="analysis-upload-dock" style={[s.uploadDock, desktop ? s.uploadDockDesktop : s.uploadDockMobile]}><Button label="Загрузить анализ" kind="primary" icon="cloud-upload-outline" onPress={onUpload}/></View>}
+    {!doctor && !marker && mode==="research" && desktop && <View nativeID="analysis-upload-dock" style={[s.uploadDock, s.uploadDockDesktop]}><Button label="Загрузить анализ" kind="primary" icon="cloud-upload-outline" onPress={onUpload}/></View>}
     </View>
   );
 }
