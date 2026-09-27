@@ -10,6 +10,16 @@ import { Button, Empty, Section, Segment, Status, analysisDate, date } from "../
 import { Modal, ScrollView } from "../../components/platform";
 import { markerStatusText } from "./report";
 
+const rubricOrder = ["Кровь", "Моча", "УЗИ", "КТ и МРТ", "Рентген", "Другие анализы"];
+const rubricMeta: Record<string, { icon: keyof typeof Ionicons.glyphMap; description: string }> = {
+  "Кровь": { icon: "water-outline", description: "Общий анализ, биохимия и гормоны" },
+  "Моча": { icon: "beaker-outline", description: "Общий анализ и биохимия мочи" },
+  "УЗИ": { icon: "pulse-outline", description: "Ультразвуковые исследования по органам" },
+  "КТ и МРТ": { icon: "scan-outline", description: "Томографические исследования" },
+  "Рентген": { icon: "image-outline", description: "Рентгенографические исследования" },
+  "Другие анализы": { icon: "document-text-outline", description: "Исследования, которым нужна дополнительная классификация" },
+};
+
 export const isProcessingAnalysis = (analysis: Analysis) => analysis.status === "queued" || analysis.status === "processing";
 
 function processingLabel(analysis: Analysis) {
@@ -33,17 +43,25 @@ export function Analyses({
   onUpload: () => void;
 }) {
   const [mode, setMode] = useState<"research" | "dynamics">("research");
+  const [rubric, setRubric] = useState("Все");
   const desktop = useWindowDimensions().width >= 960;
   const [marker, setMarker] = useState("");
   const [dynamicQuery, setDynamicQuery] = useState("");
+  const categories = useMemo(() => rubricOrder.filter((category) => data.some((analysis) => analysis.status === "ready" && (analysis.category || "Другие анализы") === category)), [data]);
   const groups = useMemo(() => {
     const grouped = new Map<string, Analysis[]>();
     data.forEach((analysis) => {
       const key = isProcessingAnalysis(analysis) ? "Обрабатываются" : analysis.status === "awaiting_confirmation" ? "Требуют проверки" : analysis.status === "needs_review" || analysis.status === "failed" ? "Нужны действия" : analysis.category || analysis.title || "Лабораторные исследования";
+      if (rubric !== "Все" && !["Обрабатываются", "Требуют проверки", "Нужны действия"].includes(key) && key !== rubric) return;
       grouped.set(key, [...(grouped.get(key) || []), analysis]);
     });
-    return Array.from(grouped.entries());
-  }, [data]);
+    const stateOrder = ["Обрабатываются", "Требуют проверки", "Нужны действия"];
+    return Array.from(grouped.entries()).sort(([left], [right]) => {
+      const leftIndex = stateOrder.includes(left) ? stateOrder.indexOf(left) : stateOrder.length + Math.max(0, rubricOrder.indexOf(left));
+      const rightIndex = stateOrder.includes(right) ? stateOrder.indexOf(right) : stateOrder.length + Math.max(0, rubricOrder.indexOf(right));
+      return leftIndex - rightIndex;
+    });
+  }, [data, rubric]);
   const markerSeries = useMemo(() => {
     const result = new Map<string, { name: string; points: Array<{ date: string; value: number; unit: string; status: string; reference: string }> }>();
     data.filter((analysis)=>analysis.status==="ready").forEach((analysis) => analysis.markers.forEach((item) => {
@@ -64,8 +82,11 @@ export function Analyses({
     <View style={s.analysisPage}>
     <ScrollView contentContainerStyle={[s.primaryTabScroll, compact && s.primaryTabScrollCompact, wide && s.primaryTabScrollWide, s.analysisScrollContent, !doctor && mode === "research" && (desktop ? s.analysisScrollWithDockDesktop : s.analysisScrollWithDockMobile)]}>
       {!doctor && <View style={s.segment}><Segment active={mode === "research"} label="Исследования" icon="documents-outline" onPress={() => setMode("research")} /><Segment active={mode === "dynamics"} label="Динамика" icon="stats-chart-outline" onPress={() => setMode("dynamics")} /></View>}
+      {(doctor || mode === "research") && categories.length > 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.rubricBar}>
+        {["Все", ...categories].map((category) => { const active = rubric === category; const meta = rubricMeta[category]; return <Pressable key={category} accessibilityRole="button" accessibilityState={{selected:active}} onPress={()=>setRubric(category)} style={({pressed})=>[s.rubricChip,active&&s.rubricChipActive,pressed&&s.pressablePressed]}>{meta ? <Ionicons name={meta.icon} size={17} color={active?colors.white:colors.muted}/> : null}<Text style={[s.rubricChipText,active&&s.rubricChipTextActive]}>{category}</Text></Pressable>; })}
+      </ScrollView> : null}
       {data.length && (doctor || mode === "research") ? (
-        <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View><View style={[s.compactCardGrid,wide&&s.compactCardGridWide]}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} wide={wide} onPress={() => onOpen(analysis)} />)}</View></View>)}</View>
+        <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View>{rubricMeta[group]?.description ? <Text style={s.groupDescription}>{rubricMeta[group].description}</Text> : null}<View style={[s.compactCardGrid,wide&&s.compactCardGridWide]}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} wide={wide} onPress={() => onOpen(analysis)} />)}</View></View>)}</View>
       ) : data.length && mode === "dynamics" ? (
         <View style={s.dynamicsScreen}>
           <View style={s.doctorSearch}><Ionicons name="search" size={20} color={colors.muted}/><TextInput style={s.doctorSearchInput} value={dynamicQuery} onChangeText={setDynamicQuery} placeholder="Например, креатинин"/></View>

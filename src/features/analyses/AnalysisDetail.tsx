@@ -256,7 +256,14 @@ export function AnalysisDetail({
                 text="Проверьте качество снимка или добавьте более чёткий файл."
               />
             )}
-            {review ? <View style={s.detailSummaryBox}><Text style={s.detailSummaryText}>{review}</Text></View> : null}
+            {review ? <View style={s.detailSummaryBox}>
+              <View style={s.detailSummaryHeading}><Ionicons name="sparkles-outline" size={19} color={colors.violet}/><Text style={s.detailSummaryTitle}>Резюме</Text></View>
+              <Text style={s.detailSummaryText}>{review}</Text>
+              {!!active.ai_review?.recommendations?.length && <View style={s.detailGuidanceSection}><Text style={s.detailGuidanceTitle}>Что делать дальше</Text>{active.ai_review.recommendations.map((text,index)=><View key={index} style={s.detailGuidanceRow}><Ionicons name="checkmark-circle-outline" size={18} color={colors.aqua}/><Text style={s.detailGuidanceText}>{text}</Text></View>)}</View>}
+              {!!active.ai_review?.red_flags?.length && <View style={s.detailAlertSection}><Text style={s.detailAlertTitle}>Когда нужна срочная помощь</Text>{active.ai_review.red_flags.map((text,index)=><View key={index} style={s.detailGuidanceRow}><Ionicons name="alert-circle-outline" size={18} color={colors.coral}/><Text style={s.detailGuidanceText}>{text}</Text></View>)}</View>}
+              {active.ai_review?.suggested_specialty ? <Text style={s.detailSpecialty}>Подходящий специалист: {active.ai_review.suggested_specialty}</Text> : null}
+              {active.ai_review?.disclaimer ? <Text style={s.detailDisclaimer}>{active.ai_review.disclaimer}</Text> : null}
+            </View> : null}
           </ScrollView>
           <View style={[s.detailFooter, { paddingBottom: Math.max(insets.bottom, 12) }]}>
             <View style={s.actionRow}>
