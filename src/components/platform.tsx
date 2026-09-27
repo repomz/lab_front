@@ -5,8 +5,15 @@ import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { s } from "../styles";
 
-export const ScrollView = React.forwardRef<React.ComponentRef<typeof NativeScrollView>, React.ComponentProps<typeof NativeScrollView>>((props, ref) => (
-  <NativeScrollView {...props} ref={ref} bounces={false} alwaysBounceVertical={false} />
+export const ScrollView = React.forwardRef<React.ComponentRef<typeof NativeScrollView>, React.ComponentProps<typeof NativeScrollView>>(({ style, ...props }, ref) => (
+  <NativeScrollView
+    {...props}
+    ref={ref}
+    style={[s.scrollViewport, style]}
+    bounces={false}
+    alwaysBounceVertical={false}
+    overScrollMode="never"
+  />
 ));
 export function Modal(props: React.ComponentProps<typeof NativeModal>) {
   if (!props.visible) return null;
@@ -70,4 +77,3 @@ export function EducationCanvas() {
   if (Platform.OS === "web") return <View pointerEvents="none" style={s.educationCanvasWeb}/>;
   return <AmbientCanvas/>;
 }
-

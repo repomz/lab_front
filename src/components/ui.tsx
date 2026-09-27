@@ -46,7 +46,7 @@ export function Button({
   icon?: keyof typeof Ionicons.glyphMap;
   compact?: boolean;
   disabled?: boolean;
-  kind?: "ghost" | "glass";
+  kind?: "ghost" | "glass" | "primary";
 }) {
   return (
     <Pressable
@@ -58,6 +58,7 @@ export function Button({
         compact && s.buttonCompact,
         kind === "ghost" && s.buttonGhost,
         kind === "glass" && s.buttonGlass,
+        kind === "primary" && s.buttonPrimary,
         pressed && !disabled && s.glassPressed,
         disabled && { opacity: 0.45 },
       ]}
@@ -66,10 +67,10 @@ export function Button({
         <Ionicons
           name={icon}
           size={19}
-          color={colors.violet}
+          color={kind === "primary" ? colors.white : colors.violet}
         />
       )}
-      <Text style={s.buttonText}>
+      <Text style={[s.buttonText, kind === "primary" && s.buttonPrimaryText]}>
         {label}
       </Text>
     </Pressable>

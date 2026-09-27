@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../api";
@@ -33,6 +33,7 @@ export function Analyses({
   onUpload: () => void;
 }) {
   const [mode, setMode] = useState<"research" | "dynamics">("research");
+  const desktop = useWindowDimensions().width >= 960;
   const [marker, setMarker] = useState("");
   const [dynamicQuery, setDynamicQuery] = useState("");
   const groups = useMemo(() => {
@@ -61,7 +62,7 @@ export function Analyses({
   const series = selectedMarker?.points || [];
   return (
     <View style={s.analysisPage}>
-    <ScrollView contentContainerStyle={[s.primaryTabScroll, compact && s.primaryTabScrollCompact, wide && s.primaryTabScrollWide, s.analysisScrollContent]}>
+    <ScrollView contentContainerStyle={[s.primaryTabScroll, compact && s.primaryTabScrollCompact, wide && s.primaryTabScrollWide, s.analysisScrollContent, !doctor && mode === "research" && (desktop ? s.analysisScrollWithDockDesktop : s.analysisScrollWithDockMobile)]}>
       {!doctor && <View style={s.segment}><Segment active={mode === "research"} label="Исследования" icon="documents-outline" onPress={() => setMode("research")} /><Segment active={mode === "dynamics"} label="Динамика" icon="stats-chart-outline" onPress={() => setMode("dynamics")} /></View>}
       {data.length && (doctor || mode === "research") ? (
         <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View><View style={[s.compactCardGrid,wide&&s.compactCardGridWide]}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} wide={wide} onPress={() => onOpen(analysis)} />)}</View></View>)}</View>
@@ -80,7 +81,7 @@ export function Analyses({
       )}
       <Modal visible={!!marker} animationType="slide" onRequestClose={()=>setMarker("")}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setMarker("")}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{selectedMarker?.name||"Динамика"}</Text><View style={s.headerSpacer}/></View><ScrollView bounces={false} contentContainerStyle={s.dynamicDetailBody}>{series.length ? <><View style={s.dynamicCurrent}><Text style={s.dynamicCurrentValue}>{series[series.length-1]?.value} {series[series.length-1]?.unit}</Text><Text style={s.analysisMeta}>Последний результат · {date(series[series.length-1]!.date)}</Text></View><DynamicsChart series={series}/><Text style={s.dynamicHistoryTitle}>История результатов</Text><View style={s.dynamicHistory}>{[...series].reverse().map((point,index)=><View key={`${point.date}-${index}`} style={s.dynamicHistoryRow}><View><Text style={s.dynamicHistoryDate}>{date(point.date)}</Text><Text style={[s.dynamicHistoryStatus,point.status!=="normal"&&{color:colors.coral}]}>{markerStatusText(point.status)} · {point.reference}</Text></View><Text style={s.dynamicHistoryValue}>{point.value} {point.unit}</Text></View>)}</View></>:null}</ScrollView></SafeAreaView></Modal>
     </ScrollView>
-    {!doctor && !marker && mode==="research" && <View nativeID="analysis-upload-dock" style={[s.uploadDock, Platform.OS === "web" && s.uploadDockWeb]}><Button label="Загрузить анализ" kind="glass" icon="cloud-upload-outline" onPress={onUpload}/></View>}
+    {!doctor && !marker && mode==="research" && <View nativeID="analysis-upload-dock" style={[s.uploadDock, desktop ? s.uploadDockDesktop : s.uploadDockMobile]}><Button label="Загрузить анализ" kind="primary" icon="cloud-upload-outline" onPress={onUpload}/></View>}
     </View>
   );
 }
