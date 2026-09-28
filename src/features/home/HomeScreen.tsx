@@ -102,7 +102,7 @@ export function Home({
         <HealthBasicsCard user={user} onPress={()=>setHealthBasicsOpen(true)}/>
         <ClinicalArticleCarousel articles={articles} onPress={()=>setClinicalCasesOpen(true)}/>
       </View>
-      <HealthInfoModal visible={healthInfoOpen} data={analyses} onClose={()=>setHealthInfoOpen(false)}/>
+      <HealthInfoModal key={user.id} visible={healthInfoOpen} data={analyses} onClose={()=>setHealthInfoOpen(false)}/>
       <ClinicalCases visible={clinicalCasesOpen} articles={articles} onSelect={setArticle} onClose={()=>setClinicalCasesOpen(false)}/>
       <ArticleReader article={article} onClose={()=>setArticle(null)}/>
       <HealthBasics visible={healthBasicsOpen} user={user} onClose={()=>setHealthBasicsOpen(false)}/>
@@ -158,10 +158,36 @@ export function AdminDashboard({tab,onPreview}:{tab:Tab;onPreview:(role:"patient
 export function AdminPreviewControl({onReturn}:{onReturn:()=>Promise<void>}) { return <Pressable accessibilityLabel="Вернуться в админку" onPress={()=>void onReturn()} style={s.adminPreviewControl}><Ionicons name="shield-checkmark-outline" size={18} color={colors.white}/><Text style={s.adminPreviewText}>Админ</Text></Pressable> }
 
 function HealthInfoModal({visible,data,onClose}:{visible:boolean;data:Analysis[];onClose:()=>void}) {
-  const [summary,setSummary]=useState<PatientHealthSummary|null>(null);
+  const ready = data.filter(item=>item.status==="ready");
+  const signature = JSON.stringify(ready.map(item=>({id:item.id,title:item.title,category:item.category,date:item.collected_at||item.created_at,markers:item.markers,report:item.report,review:item.ai_review,ocr:item.ocr_text})).sort((a,b)=>a.id.localeCompare(b.id)));
+  const [saved,setSaved]=useState<{key:string;value:PatientHealthSummary}|null>(null);
+  const pending=useRef<{key:string;promise:Promise<PatientHealthSummary>}|null>(null);
+  const summary=saved?.key===signature?saved.value:null;
   const [loading,setLoading]=useState(false);
-  useEffect(()=>{if(!visible||!data.length)return;setLoading(true);api.healthSummary().then(setSummary).catch(()=>setSummary({summary:"Общее резюме временно недоступно. Попробуйте открыть раздел позднее."})).finally(()=>setLoading(false))},[visible,data.length]);
-  return <Modal visible={visible} animationType="slide" onRequestClose={onClose}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25}/></Pressable><Text style={s.fullScreenTitle}>Ваше здоровье</Text><View style={s.headerSpacer}/></View><ScrollView bounces={false} contentContainerStyle={s.fullScreenBody}>{!data.length?<View style={s.healthInfoEmpty}><Ionicons name="sparkles-outline" size={34} color={colors.violet}/><Text style={s.healthInfoEmptyTitle}>Здесь вас будет ждать резюме</Text><Text style={s.healthInfoEmptyText}>После загрузки и распознавания анализов появится общая оценка текущего состояния и динамики показателей.</Text></View>:loading?<View style={s.healthInfoEmpty}><ActivityIndicator color={colors.violet}/><Text style={s.healthInfoEmptyText}>Сопоставляем результаты и динамику…</Text></View>:<View style={s.aiRecommendation}><Text style={s.body}>{summary?.summary||"Резюме ещё формируется."}</Text></View>}{data.length?<Text style={s.aiDisclaimer}>Информация сформирована автоматически и не является диагнозом. Сверяйте значения с оригинальными бланками.</Text>:null}</ScrollView></SafeAreaView></Modal>;
+  const [error,setError]=useState("");
+  useEffect(()=>{
+    if(!visible||!ready.length||saved?.key===signature)return;
+    let active=true;
+    setLoading(true);setError("");
+    if(pending.current?.key!==signature)pending.current={key:signature,promise:api.healthSummary()};
+    const request=pending.current;
+    request.promise.then(value=>{if(active){setSaved({key:signature,value});setLoading(false)}}).catch(()=>{
+      if(pending.current===request)pending.current=null;
+      if(active)setError("Общее резюме временно недоступно. Попробуйте открыть раздел позднее.");
+    }).finally(()=>{if(active)setLoading(false)});
+    return ()=>{active=false};
+  },[visible,signature,ready.length,saved?.key]);
+  return <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <SafeAreaView style={s.fullScreenModal}>
+      <View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25}/></Pressable><Text style={s.fullScreenTitle}>Ваше здоровье</Text><View style={s.headerSpacer}/></View>
+      <ScrollView bounces={false} contentContainerStyle={s.fullScreenBody}>
+        {!ready.length ? <View style={s.healthInfoEmpty}><Ionicons name="sparkles-outline" size={34} color={colors.violet}/><Text style={s.healthInfoEmptyTitle}>Здесь вас будет ждать резюме</Text><Text style={s.healthInfoEmptyText}>После загрузки и распознавания анализов появится общая оценка текущего состояния и динамики показателей.</Text></View>
+          : loading&&!summary ? <View style={s.healthInfoEmpty}><ActivityIndicator color={colors.violet}/><Text style={s.healthInfoEmptyText}>Получаем резюме…</Text></View>
+          : <View style={s.aiRecommendation}><Text style={s.body}>{summary?.summary||error||"Резюме ещё формируется."}</Text>{summary?.generated_at ? <Text style={s.cardHint}>Сохранено {new Date(summary.generated_at).toLocaleString("ru-RU")}. Пока результаты исследований не изменились, повторный запрос к AI не требуется.</Text> : null}</View>}
+        {ready.length ? <Text style={s.aiDisclaimer}>Информация сформирована автоматически и не является диагнозом. Сверяйте значения с оригинальными бланками.</Text> : null}
+      </ScrollView>
+    </SafeAreaView>
+  </Modal>;
 }
 
 function PatientProfileModal({ visible, user, onUpdated, canDeleteAccount, onClose }: { visible: boolean; user: User; onUpdated: (user: User) => void; canDeleteAccount: boolean; onClose: () => void }) {
