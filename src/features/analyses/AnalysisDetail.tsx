@@ -8,7 +8,7 @@ import { api } from "../../api";
 import { Analysis, StudyReport, User } from "../../types";
 import { colors } from "../../theme";
 import { s } from "../../styles";
-import { Action, Button, Empty, analysisDate, date } from "../../components/ui";
+import { Action, Button, Choice, Empty, analysisDate, date } from "../../components/ui";
 import { Modal, ScrollView } from "../../components/platform";
 import { analysisReportHTML } from "./report";
 import { AIProcessingConsentDialog } from "./AIProcessingConsent";
@@ -187,6 +187,8 @@ export function AnalysisDetail({
       <View style={s.verifyHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={onClose}><Ionicons name="arrow-back" size={25}/></Pressable><View style={{flex:1}}><Text style={s.fullScreenTitle}>{studyReport ? "Проверьте исследование" : "Проверьте показатели"}</Text><Text style={s.analysisMeta}>{active.collected_at ? `Дата исследования: ${date(active.collected_at)}` : "Дата исследования не указана в бланке"}</Text></View></View>
       <Text style={s.verifyIntro}>{studyReport ? "Сверьте описание и заключение с исходным документом. Отсутствующий на фото текст приложение не дополняет." : "Сравните значения и лабораторные референсы с исходным бланком. Резюме будет создано только после подтверждения."}</Text>
       <ScrollView contentContainerStyle={s.verifyMarkers}>{studyReport ? <View style={s.reportVerifyCard}>
+        <Text style={s.reportFieldLabel}>Папка документа</Text>
+        <View style={{flexDirection:"row",flexWrap:"wrap",gap:8}}>{([['diagnostic','Исследования'],['discharge','Выписки'],['specialist','Заключения']] as const).map(([kind,label])=>editing?<Choice key={kind} label={label} active={(studyReport.document_kind||'diagnostic')===kind} onPress={()=>setStudyReport(current=>current?{...current,document_kind:kind}:current)}/>:((studyReport.document_kind||'diagnostic')===kind?<Text key={kind} style={s.reportText}>{label}</Text>:null))}</View>
         <Text style={s.reportFieldLabel}>Название исследования</Text>
         {editing ? <TextInput style={s.reportTitleInput} value={studyReport.study_name} onChangeText={(study_name)=>setStudyReport(current=>current?{...current,study_name}:current)}/> : <Text style={s.reportTitle}>{studyReport.study_name}</Text>}
         <Text style={s.reportFieldLabel}>Описание</Text>

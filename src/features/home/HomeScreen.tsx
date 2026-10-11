@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Animated, Image, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Animated, Image, Linking, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -13,6 +13,8 @@ import { Tab, tabLabel } from "../../navigation/AppNavigation";
 import { AgeBand, HealthAudienceGender, HealthTopic, activityBand, activityImages, healthTopics, nutritionImages, personalizedHealthImages } from "../health/content";
 import { Profile } from "../profile/Profile";
 import { DoctorSupportInbox, SupportChat } from "../chat/Chats";
+import { DocumentFolder, folders } from "../analyses/folders";
+import { homeDesign as d } from "./design";
 import { APP_VERSION } from "../../config";
 import { ageFromBirthDate } from "../profile/utils";
 import { articleImageURI } from "../articles/utils";
@@ -38,6 +40,8 @@ export function Home({
 	canDeleteAccount,
   onOpenVisit,
   onOpenDoctor,
+  onFolder,
+  onUpload,
 }: {
   compact: boolean;
   wide: boolean;
@@ -50,12 +54,12 @@ export function Home({
 	canDeleteAccount: boolean;
   onOpenVisit: (visit: Consultation) => void;
   onOpenDoctor: (doctorID: string) => void;
+  onFolder: (folder: DocumentFolder) => void;
+  onUpload: () => void;
 }) {
-  const [article, setArticle] = useState<ClinicalArticle | null>(null);
-  const [clinicalCasesOpen, setClinicalCasesOpen] = useState(false);
+  const narrow = useWindowDimensions().width < 360;
   const [healthBasicsOpen, setHealthBasicsOpen] = useState(false);
   const [healthInfoOpen, setHealthInfoOpen] = useState(false);
-  const [articles, setArticles] = useState<ClinicalArticle[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [patientMenuOpen, setPatientMenuOpen] = useState(false);
   const completedAnalyses = analyses.filter((analysis)=>analysis.status==="ready");
@@ -63,53 +67,33 @@ export function Home({
   const latestNeedsAttention = !!latest && (latest.ai_review?.doctor_needed || latest.markers.some((marker) => marker.status === "high" || marker.status === "low"));
   const upcoming = consultations.filter((item) => item.service_type === "appointment" && item.appointment_at && new Date(item.appointment_at) > new Date()).sort((a, b) => (a.appointment_at || "").localeCompare(b.appointment_at || ""))[0];
   const answered = consultations.find((item) => item.status === "answered" && item.reply);
-  useEffect(()=>{api.articles().then(items=>setArticles(Array.isArray(items)?items:[])).catch(()=>setArticles([]))},[]);
+
   if (user.role === "doctor") return <>
     <DoctorHome user={user} consultations={consultations} compact={compact} onMenu={() => setPatientMenuOpen(true)} />
     <PatientProfileModal visible={profileOpen} user={user} onUpdated={onUser} canDeleteAccount={canDeleteAccount} onClose={() => setProfileOpen(false)} />
     <PatientAppMenu visible={patientMenuOpen} user={user} onUser={onUser} onClose={()=>setPatientMenuOpen(false)} onProfile={()=>{setPatientMenuOpen(false);setProfileOpen(true)}} />
   </>;
-  return (
-    <View style={[s.patientHome, compact && s.patientHomeCompact, wide && s.patientHomeWide]}>
-      <View style={[s.patientWelcome, compact && s.patientWelcomeCompact]}>
-        <View style={s.welcomeIdentity}>
-          <Text numberOfLines={2} style={[s.welcomeTitle, s.homeGreetingText, compact && s.welcomeTitleCompact]}>
-            {greetingForNow()}, {firstName(user.full_name)}
-          </Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Открыть меню" hitSlop={10} onPress={() => setPatientMenuOpen(true)} style={({pressed})=>[s.patientMenuTrigger,pressed&&s.patientMenuTriggerPressed]}>
-            <Ionicons name="menu-outline" size={28} color={colors.white} />
-          </Pressable>
-        </View>
-        <View style={s.homeUpdates}>
-          {!latest && <Pressable accessibilityRole="button" accessibilityLabel="Загрузить первый анализ" onPress={() => onTab("analyses")} style={s.homePlainAction}>
-            <Ionicons name="heart-outline" size={25} color="#BDEDE8"/>
-            <View style={{flex:1}}><Text style={s.homePlainTitle}>Загрузите свой первый анализ</Text><Text numberOfLines={1} style={s.homePlainText}>Соберите историю здоровья в одном месте</Text></View>
-            <Ionicons name="chevron-forward" size={19} color="#FFFFFFA8"/>
-          </Pressable>}
-          <Pressable accessibilityRole="button" accessibilityLabel="Открыть информацию о здоровье" onPress={() => setHealthInfoOpen(true)} style={s.homePlainAction}>
-            <Ionicons name={latestNeedsAttention ? "alert-circle-outline" : "sparkles-outline"} size={25} color={latestNeedsAttention ? "#FFD0C9" : "#D9CEFF"}/>
-            <View style={{flex:1}}><Text style={s.homePlainTitle}>Информация о вашем здоровье</Text><Text numberOfLines={1} style={s.homePlainText}>{!latest ? "Появится после первого распознавания" : latestNeedsAttention ? "Обратите внимание на последние результаты" : "Последние показатели выглядят хорошо"}</Text></View>
-            <Ionicons name="chevron-forward" size={19} color="#FFFFFFA8"/>
-          </Pressable>
-          {(upcoming || answered) && <View style={s.homeReminderList}>
-            {upcoming && <Pressable accessibilityRole="button" accessibilityLabel="Открыть предстоящий приём" onPress={() => upcoming.doctor_id ? onOpenDoctor(upcoming.doctor_id) : onOpenVisit(upcoming)} style={s.homeReminder}><Ionicons name="calendar-outline" size={21} color={colors.violet}/><View style={{flex:1}}><Text style={s.homeReminderLabel}>Приём</Text><Text numberOfLines={1} style={s.homeReminderText}>{new Date(upcoming.appointment_at!).toLocaleString("ru-RU", {day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</Text></View></Pressable>}
-            {answered && <Pressable accessibilityRole="button" accessibilityLabel={answered.source==="ai"?"Открыть рекомендацию":"Открыть ответ врача"} onPress={() => onOpenVisit(answered)} style={s.homeReminder}><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.aqua}/><View style={{flex:1}}><Text style={s.homeReminderLabel}>{answered.source==="ai"?"Рекомендация":"Ответ врача"}</Text><Text numberOfLines={1} style={s.homeReminderText}>Открыть переписку</Text></View></Pressable>}
-          </View>}
-        </View>
+  return <View style={d.screen}>
+    <View pointerEvents="none" style={{position:"absolute",left:"-15%",top:"44%",width:"70%",height:"48%",borderRadius:54,backgroundColor:"#E8E8F230",transform:[{rotate:"-9deg"}]}}/>
+    <View pointerEvents="none" style={{position:"absolute",left:"53%",top:"20%",width:"70%",height:"66%",borderRadius:38,backgroundColor:"#FFFFFF65",transform:[{rotate:"-2deg"}]}}/>
+    <ScrollView contentContainerStyle={d.content}>
+      <View style={d.greetingRow}>
+        <Text style={d.greeting}>{greetingForNow()},{compact ? "\n" : " "}{firstName(user.full_name)}!</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Открыть меню" onPress={()=>setPatientMenuOpen(true)} style={d.menu}><Ionicons name="menu-outline" size={29} color="#201A46"/></Pressable>
       </View>
-      <View nativeID="patient-home-lower" style={[s.homeDiscovery, compact && s.homeDiscoveryCompact, wide && s.homeDiscoveryWide]}>
-        {Platform.OS !== "web" && <LinearGradient pointerEvents="none" colors={["#F4EFF8", "#F6F4FA", "#EEF7F6"]} locations={[0,.52,1]} start={{x:0,y:0}} end={{x:1,y:0}} style={StyleSheet.absoluteFillObject}/>}
-        <HealthBasicsCard user={user} onPress={()=>setHealthBasicsOpen(true)}/>
-        <ClinicalArticleCarousel articles={articles} onPress={()=>setClinicalCasesOpen(true)}/>
-      </View>
-      <HealthInfoModal key={user.id} visible={healthInfoOpen} data={analyses} onClose={()=>setHealthInfoOpen(false)}/>
-      <ClinicalCases visible={clinicalCasesOpen} articles={articles} onSelect={setArticle} onClose={()=>setClinicalCasesOpen(false)}/>
-      <ArticleReader article={article} onClose={()=>setArticle(null)}/>
-      <HealthBasics visible={healthBasicsOpen} user={user} onClose={()=>setHealthBasicsOpen(false)}/>
-      <PatientProfileModal visible={profileOpen} user={user} onUpdated={onUser} canDeleteAccount={canDeleteAccount} onClose={() => setProfileOpen(false)} />
-      <PatientAppMenu visible={patientMenuOpen} user={user} onUser={onUser} onClose={()=>setPatientMenuOpen(false)} onProfile={()=>{setPatientMenuOpen(false);setProfileOpen(true)}} />
-    </View>
-  );
+      <Pressable accessibilityRole="button" accessibilityLabel="Открыть информацию о здоровье" onPress={()=>setHealthInfoOpen(true)} style={d.notice}>
+        <View style={d.noticeRow}><Ionicons name={latestNeedsAttention?"alert-circle-outline":"information-circle-outline"} size={26} color={latestNeedsAttention?"#AD2754":"#7962B8"}/><Text style={d.noticeText}>{!latest?"Добавьте документы, чтобы получить информацию о вашем здоровье.":latestNeedsAttention?"В результатах есть отклонения. Посмотрите сводку и рекомендации.":"Ваши документы собраны вместе. Посмотрите сохранённое резюме состояния."}</Text></View>
+        <Text style={d.details}>Подробнее</Text>
+      </Pressable>
+      <View style={d.grid}>{folders.map(folder=><Pressable key={folder.id} accessibilityRole="button" accessibilityLabel={folder.title} onPress={()=>onFolder(folder.id)} style={({pressed})=>[d.card,!compact&&d.cardLarge,narrow&&{padding:12},pressed&&{opacity:.8}]}>
+        <Ionicons name={folder.icon} size={34} color="#8A75BE"/><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.7} style={[d.cardTitle,!compact&&{fontSize:24},narrow&&{fontSize:14}]}>{folder.title}</Text><Text style={[d.cardText,narrow&&{fontSize:11,lineHeight:16}]}>{folder.description}</Text>
+      </Pressable>)}</View>
+    </ScrollView>
+    <HealthInfoModal key={user.id} visible={healthInfoOpen} data={analyses} onClose={()=>setHealthInfoOpen(false)}/>
+    <HealthBasics visible={healthBasicsOpen} user={user} onClose={()=>setHealthBasicsOpen(false)}/>
+    <PatientProfileModal visible={profileOpen} user={user} onUpdated={onUser} canDeleteAccount={canDeleteAccount} onClose={()=>setProfileOpen(false)}/>
+    <PatientAppMenu visible={patientMenuOpen} user={user} onUser={onUser} onClose={()=>setPatientMenuOpen(false)} onReference={()=>{setPatientMenuOpen(false);setHealthBasicsOpen(true)}} onProfile={()=>{setPatientMenuOpen(false);setProfileOpen(true)}}/>
+  </View>;
 }
 
 function DoctorHome({ user, consultations, compact, onMenu }: { user: User; consultations: Consultation[]; compact: boolean; onMenu: () => void }) {
@@ -202,7 +186,7 @@ function PatientProfileModal({ visible, user, onUpdated, canDeleteAccount, onClo
   </Modal>;
 }
 
-function PatientAppMenu({visible,user,onUser,onClose,onProfile}:{visible:boolean;user:User;onUser:(user:User)=>void;onClose:()=>void;onProfile:()=>void}) {
+function PatientAppMenu({visible,user,onUser,onClose,onProfile,onReference}:{visible:boolean;user:User;onUser:(user:User)=>void;onClose:()=>void;onProfile:()=>void;onReference?:()=>void}) {
   const [section,setSection]=useState<"menu"|"settings"|"about"|"support">("menu");
   const doctor=user.role==="doctor";
   useEffect(()=>{if(!visible)setSection("menu")},[visible]);
@@ -214,10 +198,10 @@ function PatientAppMenu({visible,user,onUser,onClose,onProfile}:{visible:boolean
       <View style={s.menuPageHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.profileBack} onPress={goBack}><Ionicons name="arrow-back" size={27} color={colors.ink}/></Pressable><Text style={s.menuPageHeaderTitle}>{title}</Text></View>
       {section==="settings"?<View style={s.patientMenuSection}>
         <Pressable accessibilityRole="button" onPress={onProfile} style={({pressed})=>[s.patientSettingsRow,pressed&&s.pressablePressed]}><View style={s.patientMenuItemIcon}><Ionicons name="person-outline" size={22} color={colors.violet}/></View><View style={{flex:1}}><Text style={s.patientMenuItemTitle}>{doctor?"Профиль врача":"Личные данные"}</Text><Text style={s.patientMenuItemHint}>{doctor?(user.doctor_profile?"Профиль заполнен":"Профиль требует заполнения"):(user.patient_profile?"Профиль заполнен":"Профиль требует заполнения")}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>
-        {!doctor&&<Pressable accessibilityRole="switch" accessibilityState={{checked:!!user.online_clinic}} onPress={async()=>{try{onUser(await api.updateSettings(!user.online_clinic))}catch(e){Alert.alert("Настройка не сохранена",e instanceof Error?e.message:"Ошибка")}}} style={({pressed})=>[s.patientSettingsRow,pressed&&s.pressablePressed]}><View style={s.patientMenuItemIcon}><Ionicons name="medkit-outline" size={22} color={colors.violet}/></View><View style={{flex:1}}><Text style={s.patientMenuItemTitle}>Онлайн-поликлиника</Text><Text style={s.patientMenuItemHint}>Специалисты, консультации и запись</Text></View><View style={[s.settingToggle,user.online_clinic&&s.settingToggleOn]}><View style={[s.settingToggleThumb,user.online_clinic&&s.settingToggleThumbOn]}/></View></Pressable>}
         <View style={s.patientSettingsRow}><View style={s.patientMenuItemIcon}><Ionicons name="keypad-outline" size={22} color={colors.violet}/></View><View style={{flex:1}}><Text style={s.patientMenuItemTitle}>Вход в приложение</Text><Text style={s.patientMenuItemHint}>Защищён PIN-кодом</Text></View></View>
-      </View>:section==="about"?<ScrollView contentContainerStyle={s.patientAboutSection}><View style={s.patientAboutMark}><Ionicons name="shield-checkmark-outline" size={38} color={colors.violet}/></View><Text style={s.patientAboutTitle}>Lab</Text><Text style={s.patientAboutVersion}>Версия {APP_VERSION}</Text><Text style={s.patientAboutText}>Lab объединяет результаты лабораторных анализов и других обследований в одном профиле здоровья. Документы из разных медицинских учреждений можно хранить вместе, сопоставлять показатели и отслеживать их динамику.</Text><Text style={s.patientAboutText}>Можно добавлять разные виды обследований, в том числе УЗИ, систематизировать результаты и получать первоначальное автоматическое резюме. Онлайн-поликлиника позволяет обратиться к врачу за консультацией или записаться на доступное время приёма.</Text><Text style={s.healthDisclaimer}>Автоматическая оценка носит информационный характер, не является диагнозом и не заменяет консультацию врача.</Text></ScrollView>:<View style={s.patientMenuSection}>
-          <Text style={s.patientMenuCaption}>Lab</Text>
+      </View>:section==="about"?<ScrollView contentContainerStyle={s.patientAboutSection}><View style={s.patientAboutMark}><Ionicons name="shield-checkmark-outline" size={38} color={colors.violet}/></View><Text style={s.patientAboutTitle}>Lab</Text><Text style={s.patientAboutVersion}>Версия {APP_VERSION}</Text><Text style={s.patientAboutText}>Lab объединяет результаты лабораторных анализов и других обследований в одном профиле здоровья. Документы из разных медицинских учреждений можно хранить вместе, сопоставлять показатели и отслеживать их динамику.</Text><Text style={s.patientAboutText}>Можно добавлять разные виды обследований, в том числе УЗИ, систематизировать результаты и получать первоначальное автоматическое резюме. AI-помощник помогает обсудить результаты, а справочник — разобраться в темах здоровья.</Text><Text style={s.healthDisclaimer}>Автоматическая оценка носит информационный характер, не является диагнозом и не заменяет консультацию врача.</Text></ScrollView>:<View style={s.patientMenuSection}>
+          <Text style={s.patientMenuCaption}>aiLab</Text>
+          {onReference&&<Pressable accessibilityRole="button" style={s.patientMenuItem} onPress={onReference}><View style={s.patientMenuItemIcon}><Ionicons name="book-outline" size={22} color={colors.violet}/></View><Text style={s.patientMenuItemTitle}>Справочник</Text><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>}
           <Pressable accessibilityRole="button" style={({pressed})=>[s.patientMenuItem,pressed&&s.pressablePressed]} onPress={onProfile}><View style={s.patientMenuItemIcon}><Ionicons name="person-outline" size={22} color={colors.violet}/></View><Text style={s.patientMenuItemTitle}>Профиль</Text><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>
           <Pressable accessibilityRole="button" style={({pressed})=>[s.patientMenuItem,pressed&&s.pressablePressed]} onPress={()=>setSection("settings")}><View style={s.patientMenuItemIcon}><Ionicons name="settings-outline" size={22} color={colors.violet}/></View><Text style={s.patientMenuItemTitle}>Настройки</Text><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>
           <Pressable accessibilityRole="button" style={({pressed})=>[s.patientMenuItem,pressed&&s.pressablePressed]} onPress={()=>setSection("support")}><View style={s.patientMenuItemIcon}><Ionicons name="help-buoy-outline" size={22} color={colors.violet}/></View><Text style={s.patientMenuItemTitle}>Служба поддержки</Text><Ionicons name="chevron-forward" size={20} color={colors.muted}/></Pressable>
@@ -316,7 +300,7 @@ function HealthBasics({visible,onClose,user}:{visible:boolean;onClose:()=>void;u
     <SafeAreaView style={s.healthBasicsPage}>
       <View style={s.articleReaderHeader}>
         <Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={topic?()=>setTopic(null):onClose}><Ionicons name="arrow-back" size={25}/></Pressable>
-        <Text numberOfLines={1} style={s.articleReaderHeaderTitle}>{topic?.title||"Понятно о здоровье"}</Text><View style={s.headerSpacer}/>
+        <Text numberOfLines={1} style={s.articleReaderHeaderTitle}>{topic?.title||"Справочник"}</Text><View style={s.headerSpacer}/>
       </View>
       {!topic ? <View style={s.healthTopicsListFixed}>
         {healthTopics.map(item=><Pressable key={item.id} accessibilityRole="button" onPress={()=>setTopic(item)} style={({pressed})=>[s.healthTopicRow,s.healthTopicRowFixed,pressed&&s.pressablePressed]}><Image source={healthTopicImageSource(user,item)} style={s.healthTopicThumb}/><View style={{flex:1,minWidth:0}}><Text numberOfLines={2} style={s.healthTopicTitle}>{item.id==="lifestyle"?"Активность и питание":item.title}</Text>{item.id!=="lifestyle"&&<Text numberOfLines={2} style={s.healthTopicIntro}>{item.intro}</Text>}</View><Ionicons name="chevron-forward" size={21} color={colors.violet}/></Pressable>)}

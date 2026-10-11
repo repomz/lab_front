@@ -9,6 +9,8 @@ import { colors } from "../theme";
 import { s } from "../styles";
 import { Banner, Loading } from "../components/ui";
 import { AmbientCanvas, AuthBackdrop, SystemChrome } from "../components/platform";
+import { DocumentFolder, documentFolder, folders } from "../features/analyses/folders";
+import { PatientDock } from "../navigation/PatientDock";
 import { Bottom, Sidebar, Tab } from "../navigation/AppNavigation";
 import { PROFILE_PROMPT_KEY } from "../config";
 import { shouldPromptForProfile } from "../features/profile/utils";
@@ -69,6 +71,7 @@ function AppContent() {
   const [boot, setBoot] = useState(true);
   const splashOpacity = useRef(new Animated.Value(1)).current;
   const [user, setUser] = useState<User | null>(null);
+  const [folder, setFolder] = useState<DocumentFolder>("laboratory");
   const [tab, setTab] = useState<Tab>("home");
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
@@ -104,10 +107,10 @@ function AppContent() {
     if (viewport) viewport.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
     // Keep the preboot canvas and the mounted application on the exact same
     // dynamic viewport geometry. This is the model used by Viewer on iOS PWA.
-    const initialGradient = "linear-gradient(180deg, #17214B 0%, #40377C 54%, #176E78 100%)";
-    Object.assign(document.documentElement.style, { width: "100%", height: "100%", minHeight: "100%", overflow: "hidden", overscrollBehavior: "none", backgroundColor: "#176E78", backgroundImage: initialGradient });
-    Object.assign(document.body.style, { width: "100%", height: "100%", minHeight: "100%", margin: "0", overflow: "hidden", position: "fixed", inset: "0", overscrollBehavior: "none", backgroundColor: "#176E78", backgroundImage: initialGradient });
-    if (root) Object.assign(root.style, { width: "100%", height: "100%", minHeight: "100%", overflow: "hidden", backgroundColor: "#176E78", backgroundImage: initialGradient });
+    const initialGradient = "none";
+    Object.assign(document.documentElement.style, { width: "100%", height: "100%", minHeight: "100%", overflow: "hidden", overscrollBehavior: "none", backgroundColor: "#FAFAFC", backgroundImage: initialGradient });
+    Object.assign(document.body.style, { width: "100%", height: "100%", minHeight: "100%", margin: "0", overflow: "hidden", position: "fixed", inset: "0", overscrollBehavior: "none", backgroundColor: "#FAFAFC", backgroundImage: initialGradient });
+    if (root) Object.assign(root.style, { width: "100%", height: "100%", minHeight: "100%", overflow: "hidden", backgroundColor: "#FAFAFC", backgroundImage: initialGradient });
   }, []);
   useEffect(()=>{analysesRef.current=analyses},[analyses]);
   const hasActiveOCRJobs=analyses.some(isProcessingAnalysis);
@@ -143,7 +146,7 @@ function AppContent() {
       setConsultations([]);
       return;
     }
-    const [analysesResult, consultationsResult] = await Promise.allSettled([api.analyses(), api.consultations()]);
+    const [analysesResult, consultationsResult] = await Promise.allSettled([api.analyses(), u.role === "patient" ? Promise.resolve([]) : api.consultations()]);
     if (analysesResult.status === "fulfilled") setAnalyses(analysesResult.value);
     if (consultationsResult.status === "fulfilled") setConsultations(consultationsResult.value);
     if (analysesResult.status === "rejected" || consultationsResult.status === "rejected") {
@@ -194,9 +197,8 @@ function AppContent() {
   }, []);
   if (boot || !user)
     return <View style={s.authOuter}>
-      <AuthBackdrop/>
-      <SystemChrome dark background="#17214B" canvas="#176E78" canvasGradient/>
-      {boot ? <Loading opacity={splashOpacity}/> : <Auth
+      <SystemChrome dark={false} background="#FAFAFC" canvas="#FAFAFC"/>
+      {<Auth boot={boot}
         onDone={async (u, t) => {
           await setToken(t);
           setUser(u);
@@ -218,6 +220,8 @@ function AppContent() {
         wide={wideDesktop}
         user={user}
         analyses={analyses}
+        onFolder={(folder)=>{setFolder(folder);setTab("analyses")}}
+        onUpload={()=>setUpload({uri:"",name:""})}
         consultations={consultations}
         onOpen={setSelected}
         onTab={setTab}
@@ -228,9 +232,12 @@ function AppContent() {
       />
     ) : tab === "analyses" ? (
       <Analyses
+        key={folder}
         compact={compact}
         wide={wideDesktop}
-        data={analyses}
+        data={user.role==="patient"?analyses.filter(item=>documentFolder(item)===folder):analyses}
+        title={user.role==="patient"?folders.find(item=>item.id===folder)?.title:undefined}
+        onBack={user.role==="patient"?()=>setTab("home"):undefined}
         doctor={user.role === "doctor"}
         onOpen={setSelected}
         onUpload={() => setUpload({ uri: "", name: "" })}
@@ -239,7 +246,7 @@ function AppContent() {
       <DoctorPatients patientsAnalyses={analyses} consultations={consultations} onOpen={setSelected} onRefresh={() => refresh()} />
     ) : tab === "consultations" ? (
       <AIWorkspace />
-    ) : tab === "doctors" ? (
+    ) : tab === "doctors" && user.role !== "patient" ? (
       <DoctorsScreen user={user} onUser={setUser} onRefresh={() => refresh()} initialDoctorID={focusDoctorID} onTargetHandled={() => setFocusDoctorID("")} onTargetBack={() => setTab("home")} />
     ) : tab === "schedule" ? (
       <DoctorSchedule user={user} compact={compact} onUser={setUser} />
@@ -250,11 +257,11 @@ function AppContent() {
     ) : tab === "articles" ? (
       <ArticleManager user={user}/>
     ) : user.role === "patient" ? (
-      <PatientDoctorChats data={consultations} initial={focusVisit} onConsumed={()=>setFocusVisit(null)} onRefresh={()=>refresh()} compact={compact}/>
+      <AIWorkspace/>
     ) : (
       <Profile user={user} onUpdated={setUser} canDeleteAccount={!adminSession}/>
     );
-  const immersiveHeader = tab === "home" && (user.role === "patient" || user.role === "doctor");
+  const immersiveHeader = tab === "home" && user.role === "doctor";
   // The full-screen canvas below the floating navigation is always the page
   // surface.  The home gradient belongs only to the header; using its teal end
   // as the document canvas produced a second coloured strip on iOS PWA.
@@ -270,7 +277,7 @@ function AppContent() {
       <SystemChrome dark={immersiveHeader} background={chromeBackground} canvas={colors.paper} canvasGradient="light" />
       <SafeAreaView edges={["top"]} style={s.safeInner}>
       <View style={s.shell}>
-        {desktop && <Sidebar user={user} tab={tab} onTab={setTab} />}
+        {desktop && user.role!=="patient" && <Sidebar user={user} tab={tab} onTab={setTab}/>}
         <View style={s.main}>
           {error ? <Banner text={error} onClose={() => setError("")} /> : null}
           <View style={s.content}>{content}</View>
@@ -284,6 +291,7 @@ function AppContent() {
           setUpload(null);
           setTab("analyses");
           const results = unpackStudies(result);
+          if(results[0]) setFolder(documentFolder(results[0]));
           setAnalyses(current=>[...results,...current.filter(item=>!results.some(result=>result.id===item.id))]);
           if (results.length > 1) setStudyResults(results);
           else setSelected(results[0]);
@@ -297,6 +305,7 @@ function AppContent() {
         onDelete={user.role === "patient" && selected ? () => requestDelete(selected) : undefined}
         onChanged={async (updated) => {
           const results = unpackStudies(updated);
+          if(results[0]) setFolder(documentFolder(results[0]));
           setAnalyses(current=>[...results,...current.filter(item=>!results.some(result=>result.id===item.id))]);
           if (results.length > 1) { setSelected(null); setStudyResults(results); }
           else { setSelected(results[0]); setStudyResults(current=>current.map(item=>item.id===updated.id?results[0]:item)); }
@@ -334,7 +343,7 @@ function AppContent() {
       {adminSession && <AdminPreviewControl onReturn={async()=>{await setToken(adminSession.token);setUser(adminSession.user);setAdminSession(null);setTab("home");setAnalyses([]);setConsultations([])}}/>}
       {jobNotice&&<Pressable accessibilityRole="button" accessibilityLabel={`${jobNotice.title}. Открыть анализ`} style={s.jobNotice} onPress={()=>{setTab("analyses");setSelected(jobNotice.analysis);setJobNotice(null)}}><View style={s.jobNoticeIcon}><Ionicons name={isProcessingAnalysis(jobNotice.analysis)?"hourglass-outline":jobNotice.analysis.status==="awaiting_confirmation"?"checkmark-done-outline":"notifications-outline"} size={22} color={colors.brand}/></View><View style={s.jobNoticeCopy}><Text style={s.jobNoticeTitle}>{jobNotice.title}</Text><Text numberOfLines={2} style={s.jobNoticeText}>{jobNotice.text}</Text><Text style={s.jobNoticeAction}>{isProcessingAnalysis(jobNotice.analysis)?"Посмотреть ход":"Открыть результат"}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Закрыть уведомление" hitSlop={10} onPress={(event)=>{event.stopPropagation();setJobNotice(null)}}><Ionicons name="close" size={20} color={colors.muted}/></Pressable></Pressable>}
       </SafeAreaView>
-      {!desktop && <Bottom role={user.role} tab={tab} onTab={setTab} />}
+      {user.role==="patient" ? <PatientDock tab={tab} onTab={setTab} onUpload={()=>setUpload({uri:"",name:""})}/> : !desktop && <Bottom role={user.role} tab={tab} onTab={setTab}/>}
     </View>
   );
 }

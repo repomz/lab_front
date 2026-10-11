@@ -39,7 +39,7 @@ export const tabLabel = (role: Role, tab: Tab) => {
 export const tabsFor = (role: Role, desktop = false): Tab[] => role === "doctor"
   ? ["home", "patients", "schedule", "ai", "guides", ...(desktop ? ["articles" as Tab,"profile" as Tab] : [])]
   : role === "admin" ? ["home", "patients", "analyses", "consultations", "guides"]
-  : ["home", "analyses", "consultations", "doctors", "profile"];
+  : ["home", "consultations"];
 
 
 export function Sidebar({
@@ -147,4 +147,3 @@ export function Bottom({ role, tab, onTab }: { role: Role; tab: Tab; onTab: (t: 
     </View>
   );
 }
-

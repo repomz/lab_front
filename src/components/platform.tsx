@@ -79,7 +79,7 @@ export function SystemChrome({ dark, background, canvas = background, canvasGrad
     ensureMeta("apple-mobile-web-app-capable", "yes");
     ensureMeta("apple-mobile-web-app-status-bar-style", "black-translucent");
     const image = canvasGradient === "light"
-      ? "radial-gradient(circle at -10% 5%, rgba(188,167,238,.24), transparent 42%), radial-gradient(circle at 110% 95%, rgba(159,221,216,.24), transparent 44%), linear-gradient(90deg, #F4EFF8 0%, #F6F4FA 52%, #EEF7F6 100%)"
+      ? "linear-gradient(135deg, #FFFFFF 0%, #FAFAFD 48%, #F0F0F5 100%)"
       : canvasGradient
         ? "linear-gradient(180deg, #17214B 0%, #40377C 54%, #176E78 100%)"
         : "none";

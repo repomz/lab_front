@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lab",
     "slug": "lab-health",
-    "version": "0.15.1",
+    "version": "0.16.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
@@ -22,14 +22,14 @@
     "androidStatusBar": {
       "backgroundColor": "#00000000",
       "translucent": true,
-      "barStyle": "light-content"
+      "barStyle": "dark-content"
     },
     "web": {
       "bundler": "metro",
       "name": "Lab — мои анализы",
       "shortName": "Lab",
-      "themeColor": "#17214B",
-      "backgroundColor": "#176E78",
+      "themeColor": "#FAFAFC",
+      "backgroundColor": "#FAFAFC",
       "display": "standalone"
     },
     "plugins": [
