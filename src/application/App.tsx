@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Animated, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { Animated, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { Alert, FeedbackHost } from "../components/feedback";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -31,7 +32,7 @@ import { ArticleManager, DoctorPatients, DoctorSchedule, DoctorsScreen } from ".
 
 
 export default function App() {
-  return <AppErrorBoundary><SafeAreaProvider><AppContent /></SafeAreaProvider></AppErrorBoundary>;
+  return <SafeAreaProvider><AppErrorBoundary><AppContent /><FeedbackHost/></AppErrorBoundary></SafeAreaProvider>;
 }
 
 class AppErrorBoundary extends React.Component<React.PropsWithChildren, { failed: boolean }> {
@@ -165,10 +166,6 @@ function AppContent() {
         setError(e instanceof Error ? e.message : "Не удалось удалить анализ");
       }
     };
-    if (Platform.OS === "web") {
-      if (window.confirm(`Удалить «${item.title}» вместе с исходным файлом?`)) void remove();
-      return;
-    }
     Alert.alert(
       "Удалить анализ?",
       "Карточка и загруженный исходный файл будут удалены без возможности восстановления.",

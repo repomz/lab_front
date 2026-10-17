@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,7 +9,7 @@ import { Analysis } from "../../types";
 import { colors } from "../../theme";
 import { s } from "../../styles";
 import { Button, Source } from "../../components/ui";
-import { Modal } from "../../components/platform";
+import { Modal, ScrollView } from "../../components/platform";
 import { AIProcessingConsentControl } from "./AIProcessingConsent";
 
 export type Asset = { uri: string; name: string; mimeType?: string; file?: Blob };
@@ -29,6 +29,8 @@ export function UploadModal({
   const compact = width < 520;
   const [asset, setAsset] = useState<Asset | null>(null);
   const [busy, setBusy] = useState(false);
+  const submitting=useRef(false);
+  const pick=(action:()=>Promise<void>)=>void action().catch(e=>setError(e instanceof Error?e.message:"Не удалось открыть файл"));
   const [error, setError] = useState("");
   const [aiProcessingConsent, setAIProcessingConsent] = useState(false);
   useEffect(() => {
@@ -102,6 +104,7 @@ export function UploadModal({
     }
   }
   async function submit() {
+    if(submitting.current)return;
     if (!asset) {
       setError("Сначала выберите файл.");
       return;
@@ -110,7 +113,7 @@ export function UploadModal({
       setError("Подтвердите передачу документа внешнему AI-сервису.");
       return;
     }
-    setBusy(true);
+    submitting.current=true;setBusy(true);
     setError("");
     try {
       const result = await api.upload(asset, aiProcessingConsent);
@@ -118,7 +121,7 @@ export function UploadModal({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
     } finally {
-      setBusy(false);
+      submitting.current=false;setBusy(false);
     }
   }
   return (
@@ -128,7 +131,7 @@ export function UploadModal({
       onRequestClose={() => { if (!busy) onClose(); }}
     >
       <SafeAreaView style={s.fullScreenModal}>
-        <View style={[s.uploadSheet, compact && s.uploadSheetCompact]}>
+        <ScrollView style={{flex:1}} contentContainerStyle={[s.uploadSheet, {flex:undefined,flexGrow:1}, compact && s.uploadSheetCompact]}>
           <View style={s.rowBetween}>
             <Pressable
               accessibilityRole="button"
@@ -144,9 +147,9 @@ export function UploadModal({
           </View>
           <Text style={s.cardHint}>Выберите фото или PDF (до 10 страниц). Если в файле несколько разных исследований, каждое будет сохранено отдельно.</Text>
           {!busy && <View style={s.sourceRow}>
-            <Source icon="camera-outline" label="Камера" onPress={camera} />
-            <Source icon="images-outline" label="Галерея" onPress={gallery} />
-            <Source icon="folder-open-outline" label="Файлы" onPress={files} />
+            <Source icon="camera-outline" label="Камера" onPress={()=>pick(camera)} />
+            <Source icon="images-outline" label="Галерея" onPress={()=>pick(gallery)} />
+            <Source icon="folder-open-outline" label="Файлы" onPress={()=>pick(files)} />
           </View>}
           {asset && (
             <View style={s.fileChosen}>
@@ -183,7 +186,7 @@ export function UploadModal({
             disabled={busy || !asset || !aiProcessingConsent}
             onPress={submit}
           />
-        </View>
+        </ScrollView>
       </SafeAreaView>
     </Modal>
   );

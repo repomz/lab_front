@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from "react-native";
+import { Alert } from "../../components/feedback";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { api } from "../../api";
-import { AIChat } from "../../types";
+import { AIChat, AIMessage } from "../../types";
 import { colors } from "../../theme";
 import { s } from "../../styles";
 import { Button, Empty, firstName } from "../../components/ui";
@@ -58,14 +59,16 @@ export function AIWorkspace({name="",listRequest=0,onUpload}:{name?:string;listR
   async function send(){
     if(sending.current||!message.trim())return;
     const text=message.trim();sending.current=true;setBusy(true);setError("");setMessage("");
+    let before=active;
     try{
       const chat=active||await api.createAIChat();
       if(!mounted.current)return;
-      setActive(chat);setTitle(chat.title);
-      await api.aiMessage(chat.id,text);
-      const updated=await api.aiChat(chat.id);
-      if(mounted.current)setActive(updated);
-    }catch(e){if(mounted.current){setMessage(text);setError(e instanceof Error?e.message:"AI временно недоступен")}}
+      before=chat;
+      const userMessage:AIMessage={role:'user',content:text,created_at:new Date().toISOString()};
+      setActive({...chat,messages:[...(chat.messages||[]),userMessage]});setTitle(chat.title);
+      const reply=await api.aiMessage(chat.id,text);
+      if(mounted.current)setActive({...chat,messages:[...(chat.messages||[]),userMessage,reply]});
+    }catch(e){if(mounted.current){setActive(before);setMessage(text);setError(e instanceof Error?e.message:"AI временно недоступен")}}
     finally{sending.current=false;if(mounted.current)setBusy(false)}
   }
   async function rename(){
@@ -82,12 +85,11 @@ export function AIWorkspace({name="",listRequest=0,onUpload}:{name?:string;listR
       finally{if(mounted.current)setDeleting("")}
     };
     const question=`Удалить чат от ${chatDate(chat)}? Переписку нельзя будет восстановить.`;
-    if(Platform.OS==="web"){if(window.confirm(question))void perform()}
-    else Alert.alert("Удалить чат?",question,[{text:"Отмена",style:"cancel"},{text:"Удалить",style:"destructive",onPress:()=>void perform()}]);
+    Alert.alert("Удалить чат?",question,[{text:"Отмена",style:"cancel"},{text:"Удалить",style:"destructive",onPress:()=>void perform()}]);
   }
   const composer=<View style={d.composer}><View style={d.inputShell}>
     {onUpload&&<Pressable accessibilityRole="button" accessibilityLabel="Добавить документ" disabled={busy} onPress={onUpload} style={d.inputIcon}><Ionicons name="add" size={24} color="#6E8791"/></Pressable>}
-    <TextInput accessibilityLabel="Сообщение AI" multiline style={d.input} placeholder="Спросите о здоровье…" value={message} onChangeText={setMessage} editable={!busy}/>
+    <TextInput accessibilityLabel="Сообщение AI" multiline maxLength={4000} style={d.input} placeholder="Спросите о здоровье…" value={message} onChangeText={setMessage} editable={!busy}/>
     <Pressable accessibilityRole="button" accessibilityLabel="Диктовка" disabled={busy||listening} style={d.inputIcon} onPress={()=>startDictation(setMessage,setListening)}><Ionicons name={listening?"radio":"mic-outline"} size={22} color="#6E8791"/></Pressable>
   </View><Pressable accessibilityRole="button" accessibilityLabel="Отправить сообщение" disabled={busy||!message.trim()} onPress={()=>void send()} style={[d.send,(busy||!message.trim())&&{opacity:.5}]}>{busy?<ActivityIndicator color="white"/>:<Ionicons name="arrow-up" size={25} color="white"/>}</Pressable></View>;
   return <View style={d.page}>
@@ -110,7 +112,7 @@ export function AIWorkspace({name="",listRequest=0,onUpload}:{name?:string;listR
         <View><Text style={d.greeting}>{name?`Здравствуйте, ${firstName(name)}!`:"Здравствуйте!"}</Text><Text style={d.question}>Чем могу помочь?</Text></View>
         {composer}
         <View style={d.suggestions}>{suggestions.map(item=><Pressable key={item.text} accessibilityRole="button" onPress={()=>setMessage(item.text)} style={d.suggestion}><Ionicons name={item.icon} size={24} color="#34505A"/><Text style={d.suggestionText}>{item.text}</Text></Pressable>)}</View>
-        <Text style={d.note}>AI помогает разобраться в информации, но не заменяет врача.</Text>
+        <Text style={d.note}>Чат видит только переписку. Для обсуждения результата приведите его значения и референсы в вопросе. AI не заменяет врача.</Text>
       </ScrollView>}
     </KeyboardAvoidingView>
     <Modal visible={listOpen} animationType="slide" onRequestClose={()=>setListOpen(false)}><SafeAreaView style={s.fullScreenModal}>

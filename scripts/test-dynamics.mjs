@@ -18,6 +18,8 @@ const data=[
 ];
 const series=buildMarkerSeries(data);
 assert.equal(series.size,4);
+const specimens=buildMarkerSeries([{...data[0],category:'Кровь'},{...data[0],id:'urine',category:'Моча'}]);
+assert.equal(filterMarkerSeries(specimens,'Глю','all').length,2,'Blood and urine must never share a chart');
 assert.equal(filterMarkerSeries(series,' гЛЮ ','all').length,2);
 assert.equal(filterMarkerSeries(series,'люк','all').length,0,'Search must match the name prefix');
 assert.equal(filterMarkerSeries(series,'','normal').length,2);

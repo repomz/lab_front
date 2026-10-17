@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Modal as NativeModal, Platform, ScrollView as NativeScrollView, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -19,9 +19,42 @@ export const ScrollView = React.forwardRef<React.ComponentRef<typeof NativeScrol
 export function Modal(props: React.ComponentProps<typeof NativeModal>) {
   if (!props.visible) return null;
   if (Platform.OS === "web" && typeof document !== "undefined") {
-    return createPortal(<View style={s.webModalRoot}>{props.children}</View>, document.body);
+    return <WebModal onClose={props.onRequestClose as (()=>void)|undefined}>{props.children}</WebModal>;
   }
   return <NativeModal {...props} />;
+}
+const modalStack:HTMLElement[]=[];
+const originalInert=new Map<HTMLElement,boolean>();
+function syncModalInert(){
+  if(!modalStack.length){originalInert.forEach((value,node)=>{node.inert=value});originalInert.clear();return}
+  const top=modalStack[modalStack.length-1];
+  for(const node of Array.from(document.body.children))if(node instanceof HTMLElement){
+    if(!originalInert.has(node))originalInert.set(node,node.inert);
+    node.inert=node!==top;
+  }
+}
+function WebModal({children,onClose}:React.PropsWithChildren<{onClose?:()=>void}>){
+  const ref=useRef<HTMLDivElement>(null);
+  const close=useRef(onClose);close.current=onClose;
+  useEffect(()=>{
+    const node=ref.current;if(!node)return;
+    const previous=document.activeElement instanceof HTMLElement?document.activeElement:null;
+    modalStack.push(node);syncModalInert();
+    node.focus();
+    const key=(event:KeyboardEvent)=>{
+      if(node.inert)return;
+      if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close.current?.();return}
+      if(event.key!=='Tab')return;
+      const items=Array.from(node.querySelectorAll<HTMLElement>('button,input,textarea,select,a[href],[tabindex]')).filter(el=>el.tabIndex>=0&&!el.hasAttribute('disabled')&&el.getClientRects().length>0&&!el.closest('[inert]'));
+      const first=items[0],last=items[items.length-1];
+      if(!first){event.preventDefault();node.focus()}
+      else if(event.shiftKey&&(document.activeElement===first||document.activeElement===node)){event.preventDefault();last?.focus()}
+      else if(!event.shiftKey&&(document.activeElement===last||!node.contains(document.activeElement))){event.preventDefault();first.focus()}
+    };
+    node.addEventListener('keydown',key);
+    return()=>{node.removeEventListener('keydown',key);const index=modalStack.indexOf(node);if(index>=0)modalStack.splice(index,1);syncModalInert();if(previous?.isConnected&&!previous.closest('[inert]'))previous.focus()};
+  },[]);
+  return createPortal(<div ref={ref} role="dialog" aria-modal="true" tabIndex={-1} style={{position:'fixed',inset:0,zIndex:9999,display:'flex',flexDirection:'column',outline:'none'}}>{children}</div>,document.body);
 }
 export function SystemChrome({ dark, background, canvas = background, canvasGradient = false }: { dark: boolean; background: string; canvas?: string; canvasGradient?: boolean | "light" }) {
   useEffect(() => {

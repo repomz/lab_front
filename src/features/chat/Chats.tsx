@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView as NativeScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView as NativeScrollView, Text, TextInput, View } from "react-native";
+import { Alert } from "../../components/feedback";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../api";
 import { Consultation, SupportMessage } from "../../types";

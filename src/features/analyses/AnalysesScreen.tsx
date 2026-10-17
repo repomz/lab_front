@@ -91,7 +91,7 @@ export function Analyses({
         <View style={s.dynamicsScreen}>
           <View style={s.doctorSearch}><Ionicons name="search" size={20} color={colors.muted}/><TextInput style={s.doctorSearchInput} value={dynamicQuery} onChangeText={setDynamicQuery} accessibilityLabel="Поиск показателя" placeholder="Начало названия показателя"/></View>
           <View style={d.filters}>{([["all","Все"],["normal","В норме"],["abnormal","Вне нормы"]] as const).map(([value,label])=><Pressable key={value} accessibilityRole="button" accessibilityState={{selected:dynamicFilter===value}} onPress={()=>setDynamicFilter(value)} style={[d.filter,dynamicFilter===value&&d.filterActive]}><Text style={[d.filterText,dynamicFilter===value&&d.filterTextActive]}>{label}</Text></Pressable>)}</View><Text style={d.hint}>По последнему результату каждого показателя. Без референса — только в «Все».</Text>
-          <View style={[s.dynamicCards,wide&&s.dynamicCardsWide]}>{dynamicEntries.map((entry) => <DynamicMarkerCard key={entry.key} name={entry.name} wide={wide} onPress={() => setMarker(entry.key)}/>)}</View>
+          <View style={[s.dynamicCards,wide&&s.dynamicCardsWide]}>{dynamicEntries.map((entry) => <DynamicMarkerCard key={entry.key} name={entry.name} context={entry.context} wide={wide} onPress={() => setMarker(entry.key)}/>)}</View>
           {!dynamicEntries.length && <Empty icon="stats-chart-outline" title="Показатель не найден" text="Измените запрос или загрузите исследование с этим показателем."/>}
         </View>
       ) : (
@@ -101,16 +101,16 @@ export function Analyses({
           text="Поддерживаются фотографии, изображения из галереи и PDF."
         />
       )}
-      <Modal visible={!!marker} animationType="slide" onRequestClose={()=>setMarker("")}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setMarker("")}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{selectedMarker?.name||"Динамика"}</Text><View style={s.headerSpacer}/></View><ScrollView bounces={false} contentContainerStyle={s.dynamicDetailBody}>{series.length ? <><View style={s.dynamicCurrent}><Text style={s.dynamicCurrentValue}>{series[series.length-1]?.value} {series[series.length-1]?.unit}</Text><Text style={s.analysisMeta}>Последний результат · {date(series[series.length-1]!.date)}</Text></View><DynamicsChart series={series}/><Text style={s.dynamicHistoryTitle}>История результатов</Text><View style={s.dynamicHistory}>{[...series].reverse().map((point,index)=><View key={`${point.date}-${index}`} style={s.dynamicHistoryRow}><View><Text style={s.dynamicHistoryDate}>{date(point.date)}</Text><Text style={[s.dynamicHistoryStatus,point.status!=="normal"&&{color:colors.coral}]}>{markerStatusText(point.status)} · {point.reference}</Text></View><Text style={s.dynamicHistoryValue}>{point.value} {point.unit}</Text></View>)}</View></>:null}</ScrollView></SafeAreaView></Modal>
+      <Modal visible={!!marker} animationType="slide" onRequestClose={()=>setMarker("")}><SafeAreaView style={s.fullScreenModal}><View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>setMarker("")}><Ionicons name="arrow-back" size={25}/></Pressable><Text numberOfLines={1} style={s.fullScreenTitle}>{selectedMarker?.name||"Динамика"}</Text><View style={s.headerSpacer}/></View><ScrollView bounces={false} contentContainerStyle={s.dynamicDetailBody}>{series.length ? <><View style={s.dynamicCurrent}><Text style={s.dynamicCurrentValue}>{series[series.length-1]?.value} {series[series.length-1]?.unit}</Text><Text style={s.analysisMeta}>Последний результат · {date(series[series.length-1]!.date)}</Text></View><DynamicsChart series={series}/><Text style={s.dynamicHistoryTitle}>История результатов</Text><View style={s.dynamicHistory}>{[...series].reverse().map((point,index)=><View key={`${point.date}-${index}`} style={s.dynamicHistoryRow}><View><Text style={s.dynamicHistoryDate}>{date(point.date)}</Text><Text style={[s.dynamicHistoryStatus,(point.status==="high"||point.status==="low")&&{color:colors.coral}]}>{markerStatusText(point.status)} · {point.reference}</Text></View><Text style={s.dynamicHistoryValue}>{point.value} {point.unit}</Text></View>)}</View></>:null}</ScrollView></SafeAreaView></Modal>
     </ScrollView>
     {!doctor && !onBack && !marker && mode==="research" && desktop && <View nativeID="analysis-upload-dock" style={[s.uploadDock, s.uploadDockDesktop]}><Button label="Загрузить анализ" kind="primary" icon="cloud-upload-outline" onPress={onUpload}/></View>}
     </View>
   );
 }
 
-export function DynamicMarkerCard({ name, wide=false, onPress }: { name: string; wide?: boolean; onPress: () => void }) {
+export function DynamicMarkerCard({ name, context, wide=false, onPress }: { name: string; context?:string; wide?: boolean; onPress: () => void }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={`Открыть динамику: ${name}`} onPress={onPress} style={({pressed})=>[s.dynamicMarkerCard,wide&&s.wideGridCard,pressed&&s.pressablePressed]}>
-    <View style={s.dynamicMarkerCopy}><Text numberOfLines={1} style={s.dynamicCardTitle}>{name}</Text></View>
+    <View style={s.dynamicMarkerCopy}><Text numberOfLines={1} style={s.dynamicCardTitle}>{name}</Text>{!!context&&<Text style={s.analysisMeta}>{context}</Text>}</View>
     <View style={s.dynamicCardArrow}><Ionicons name="chevron-forward" size={23} color={colors.ink}/></View>
   </Pressable>;
 }
@@ -120,7 +120,7 @@ export function DynamicsChart({ series }: { series: Array<{ date: string; value:
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min || 1;
-  return <View style={s.chartCard}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chartBars}>{series.map((point,index) => { const height = 52 + ((point.value - min) / span) * 118; return <View key={`${point.date}-${index}`} style={s.chartColumn}><Text style={s.chartValue}>{point.value}</Text><View style={[s.chartBar, { height }, point.status !== "normal" && s.chartBarAlert]} /><Text style={s.chartDate}>{new Date(point.date).toLocaleDateString("ru-RU",{day:"numeric",month:"short",year:"2-digit"})}</Text></View>; })}</ScrollView><Text style={s.chartUnit}>{series[0]?.unit}</Text></View>;
+  return <View style={s.chartCard}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chartBars}>{series.map((point,index) => { const height = 52 + ((point.value - min) / span) * 118; return <View key={`${point.date}-${index}`} style={s.chartColumn}><Text style={s.chartValue}>{point.value}</Text><View style={[s.chartBar, { height }, (point.status === "high" || point.status === "low") && s.chartBarAlert]} /><Text style={s.chartDate}>{new Date(point.date).toLocaleDateString("ru-RU",{day:"numeric",month:"short",year:"2-digit"})}</Text></View>; })}</ScrollView><Text style={s.chartUnit}>{series[0]?.unit}</Text></View>;
 }
 export function AnalysisCard({
   item,

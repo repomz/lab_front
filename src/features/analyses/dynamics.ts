@@ -2,7 +2,7 @@ import { Analysis } from "../../types";
 
 export type DynamicsFilter = "all" | "normal" | "abnormal";
 export type MarkerPoint = { date: string; value: number; unit: string; status: string; reference: string };
-export type MarkerSeries = { name: string; points: MarkerPoint[] };
+export type MarkerSeries = { name: string; context: string; points: MarkerPoint[] };
 const normalize = (text: string) => text.trim().toLocaleLowerCase("ru-RU").replace(/ё/g,"е");
 
 export function buildMarkerSeries(data: Analysis[]) {
@@ -12,8 +12,9 @@ export function buildMarkerSeries(data: Analysis[]) {
   for (const analysis of ordered) for (const item of analysis.markers) {
     if (typeof item.value!=="number" || !Number.isFinite(item.value)) continue;
     // Different units must not be plotted on the same numeric scale.
-    const key = `${normalize(item.canonical_name||item.name)}:${normalize(item.unit||"")}`;
-    const entry = result.get(key)||{name:item.name,points:[]};
+    const category=analysis.category||"Другие анализы";
+    const key = `${normalize(category)}:${normalize(item.canonical_name||item.name)}:${normalize(item.unit||"")}`;
+    const entry = result.get(key)||{name:item.name,context:[category,item.unit].filter(Boolean).join(" · "),points:[]};
     entry.name=item.name;
     entry.points.push({date:analysis.collected_at||analysis.created_at,value:item.value,unit:item.unit||"",status:item.status,reference:item.reference_text||[item.reference_min,item.reference_max].filter(value=>value!==undefined).join(" — ")||"—"});
     result.set(key,entry);

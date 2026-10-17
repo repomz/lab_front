@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from "react-native";
+import { Alert } from "../../components/feedback";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -92,14 +93,14 @@ export function ProfileCompletionModal({ visible, user, onUpdated, onClose }: { 
   const [busy, setBusy] = useState(false);
   const age = ageFromBirthDate(birthDate);
   const retentionReady = !user.is_developer || (Number(retentionHours) >= 1 && Number(retentionHours) <= 720);
-  const ready = !!name.trim() && age > 0 && Number(height) >= 50 && Number(height) <= 250 && Number(weight) >= 5 && Number(weight) <= 400 && retentionReady;
+  const ready = !!name.trim() && age > 0 && Number(height.replace(",", ".")) >= 50 && Number(height.replace(",", ".")) <= 250 && Number(weight.replace(",", ".")) >= 5 && Number(weight.replace(",", ".")) <= 400 && retentionReady;
   async function save() {
     if (!ready || busy) return;
     setBusy(true);
     try {
       const fullName = [name.trim(), surname.trim(), patronymic.trim()].filter(Boolean).join(" ");
       await api.updateContactProfile({ fullName, contactEmail: contactEmail.trim(), phone: phone.trim(), city: city.trim() });
-      const updated = await api.updatePatientProfile({ age, birthDate, heightCM: Number(height), weightKG: Number(weight), activity: { regular_sport: false }, nutrition: {}, devDataTTLHours: user.is_developer ? Number(retentionHours) : undefined });
+      const updated = await api.updatePatientProfile({ age, birthDate, heightCM: Number(height.replace(",", ".")), weightKG: Number(weight.replace(",", ".")), activity: { regular_sport: false }, nutrition: {}, devDataTTLHours: user.is_developer ? Number(retentionHours) : undefined });
       onUpdated(updated);
     } catch (e) {
       Alert.alert("Не удалось сохранить", e instanceof Error ? e.message : "Проверьте введённые данные");
@@ -164,7 +165,7 @@ export function Profile({ user, onUpdated, canDeleteAccount = true }: { user: Us
   const [workplace,setWorkplace]=useState(user.doctor_profile?.workplace||"");
   const [experience,setExperience]=useState((user.doctor_profile?.experience||[]).join("\n"));
   const [services,setServices]=useState((user.doctor_profile?.services||[]).join("\n"));
-  const [birthDate, setBirthDate] = useState(profile?.birth_date || "");
+  const [birthDate, setBirthDate] = useState(profile?.birth_date || user.birth_date || "");
   const [height, setHeight] = useState(profile ? String(profile.height_cm) : "");
   const [weight, setWeight] = useState(profile ? String(profile.weight_kg) : "");
   const [retentionHours, setRetentionHours] = useState(String(user.dev_data_ttl_hours || 24));
@@ -180,7 +181,7 @@ export function Profile({ user, onUpdated, canDeleteAccount = true }: { user: Us
     setBusy(true);
     try {
       let updated = await api.updateContactProfile({ fullName, contactEmail, phone, city });
-      if (user.role === "patient") updated = await api.updatePatientProfile({ age: ageFromBirthDate(birthDate) || profile?.age || 0, birthDate, heightCM: Number(height), weightKG: Number(weight), activity: profile?.activity || { regular_sport: false }, nutrition: profile?.nutrition || {}, devDataTTLHours: user.is_developer ? Number(retentionHours) : undefined });
+      if (user.role === "patient") updated = await api.updatePatientProfile({ age: ageFromBirthDate(birthDate) || profile?.age || 0, birthDate, heightCM: Number(height.replace(",", ".")), weightKG: Number(weight.replace(",", ".")), activity: profile?.activity || { regular_sport: false }, nutrition: profile?.nutrition || {}, devDataTTLHours: user.is_developer ? Number(retentionHours) : undefined });
       if (user.role === "doctor") updated = await api.updateDoctorProfile({fullName,specialization:specialization||doctorSpecialties[0]!,city,about,workplace,experience:experience.split("\n"),services:services.split("\n"),schedule_step:user.doctor_profile?.schedule_step||30,visible_days:user.doctor_profile?.visible_days||6});
       onUpdated(updated);
       Alert.alert("Готово", "Данные профиля сохранены.");
@@ -243,5 +244,5 @@ export function Profile({ user, onUpdated, canDeleteAccount = true }: { user: Us
 }
 
 export function ProfileLine({ label, suffix, ...props }: any) {
-  return <View style={s.profileLine}><Text style={s.profileLineLabel}>{label}</Text><View style={s.profileLineValue}><TextInput {...props} style={s.profileLineInput} placeholderTextColor={colors.muted}/>{suffix ? <Text style={s.profileLineSuffix}>{suffix}</Text> : null}</View></View>;
+  return <View style={s.profileLine}><Text style={s.profileLineLabel}>{label}</Text><View style={s.profileLineValue}><TextInput accessibilityLabel={label} {...props} style={s.profileLineInput} placeholderTextColor={colors.muted}/>{suffix ? <Text style={s.profileLineSuffix}>{suffix}</Text> : null}</View></View>;
 }
