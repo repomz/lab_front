@@ -10,6 +10,7 @@ import { colors } from "../../theme";
 import { s } from "../../styles";
 import { Action, Button, Choice, Empty, analysisDate, date } from "../../components/ui";
 import { Modal, ScrollView } from "../../components/platform";
+import { documentDesign as d } from "./design";
 import { analysisReportHTML } from "./report";
 import { AIProcessingConsentDialog } from "./AIProcessingConsent";
 
@@ -206,21 +207,9 @@ export function AnalysisDetail({
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <SafeAreaView edges={["top"]} style={s.fullScreenModal}>
         <View style={s.fullScreenInner}>
-          <View style={s.detailHeader}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Назад"
-              hitSlop={10}
-              style={s.iconButton}
-              onPress={onClose}
-            >
-              <Ionicons name="arrow-back" size={25} />
-            </Pressable>
-            <View style={{ flex: 1 }}>
-              <Text style={s.eyebrow}>{date(analysisDate(active))}</Text>
-              <Text style={s.cardTitle}>{active.title}</Text>
-            </View>
-            <View style={s.headerSpacer}/>
+          <View style={d.heading}>
+            <Text style={s.eyebrow}>{date(analysisDate(active))}</Text>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={d.title}>{active.title}</Text>
           </View>
           <ScrollView
             style={s.detailScroll}
@@ -232,25 +221,14 @@ export function AnalysisDetail({
             keyboardShouldPersistTaps="handled"
           >
             {active.report ? <View style={s.reportDetailCard}><Text style={s.reportTitle}>{active.report.study_name}</Text><Text style={s.reportFieldLabel}>Описание</Text><Text style={s.reportText}>{active.report.description || "Описание отсутствует"}</Text><Text style={s.reportFieldLabel}>Заключение</Text><Text style={s.reportConclusion}>{active.report.conclusion || "Заключение отсутствует в предоставленном фрагменте"}</Text></View> : active.markers.length ? (
-              active.markers.map((m, i) => (
-                <View
-                  key={`${m.name}-${i}`}
-                  style={[
-                    s.markerTableRow,
-                    (m.status === "high" || m.status === "low") && s.markerTableRowAlert,
-                  ]}
-                >
-                  <Text numberOfLines={2} style={s.markerTableName}>{m.name}</Text>
-                  <Text numberOfLines={1} style={s.markerTableValue}>{m.value ?? m.text_value} {m.unit}</Text>
-                  <Text numberOfLines={2} style={s.markerTableReference}>
-                    {m.reference_text ||
-                        [m.reference_min, m.reference_max]
-                          .filter((x) => x !== undefined)
-                          .join(" — ") ||
-                        "—"}
-                  </Text>
-                </View>
-              ))
+              <View style={d.table}>
+                <View style={d.tableHeader}><Text style={[d.name,d.headerText]}>Название</Text><Text style={[d.result,d.headerText]}>Результат</Text><View style={d.reference}><Text style={d.headerText}>Референс</Text></View></View>
+                {active.markers.map((m,i)=><View key={`${m.name}-${i}`} style={[d.row,i===active.markers.length-1&&{borderBottomWidth:0}]}>
+                  <Text style={d.name}>{m.name}</Text>
+                  <Text accessibilityLabel={`${m.value??m.text_value??"—"}${m.status==="high"?", выше референса":m.status==="low"?", ниже референса":""}`} style={[d.result,(m.status==="high"||m.status==="low")&&d.abnormal]}>{m.value??m.text_value??"—"}{m.status==="high"?" ↑":m.status==="low"?" ↓":""}</Text>
+                  <View style={d.reference}><Text style={d.range}>{m.reference_text||[m.reference_min,m.reference_max].filter(value=>value!==undefined).join(" — ")||"—"}</Text>{!!m.unit&&<Text style={d.unit}>{m.unit}</Text>}</View>
+                </View>)}
+              </View>
             ) : (
               <Empty
                 icon="scan-outline"
@@ -267,19 +245,13 @@ export function AnalysisDetail({
               {active.ai_review?.disclaimer ? <Text style={s.detailDisclaimer}>{active.ai_review.disclaimer}</Text> : null}
             </View> : null}
           </ScrollView>
-          <View style={[s.detailFooter, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-            <View style={s.actionRow}>
-              <Action
-                icon="share-outline"
-                label="Передать"
-                busy={exporting === "share"}
-                disabled={!!exporting}
-                onPress={() => void performReportAction("share")}
-              />
-              <Action icon="document-text-outline" label="Просмотр" busy={exporting === "view"} disabled={!!exporting} onPress={() => void performReportAction("view")}/>
-              {onDelete && <Action icon="trash-outline" label="Удалить" disabled={!!exporting} danger onPress={onDelete}/>}
-              {Platform.OS === "web" && !compact && <Action icon="print-outline" label="Печать" busy={exporting === "print"} disabled={!!exporting} onPress={() => void performReportAction("print")}/>}
+          <View style={[d.footer,{paddingBottom:Math.max(insets.bottom,16)}]}>
+            <View style={d.actions}>
+              <DetailAction icon="document-text-outline" label="Просмотр" busy={exporting==="view"} disabled={!!exporting} onPress={()=>void performReportAction("view")}/>
+              <DetailAction icon="share-outline" label="Передать" busy={exporting==="share"} disabled={!!exporting} onPress={()=>void performReportAction("share")}/>
+              {onDelete&&<DetailAction icon="trash-outline" label="Удалить" disabled={!!exporting} onPress={onDelete}/>}
             </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Назад" onPress={onClose} style={d.back}><Ionicons name="arrow-back" size={26} color="white"/></Pressable>
           </View>
         </View>
       </SafeAreaView>
@@ -292,4 +264,8 @@ export function AnalysisDetail({
     </Modal>
     </>
   );
+}
+
+function DetailAction({icon,label,busy,disabled,onPress}:{icon:keyof typeof Ionicons.glyphMap;label:string;busy?:boolean;disabled?:boolean;onPress:()=>void}){
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress} style={[d.action,disabled&&{opacity:.5}]}>{busy?<ActivityIndicator color="#211A49"/>:<Ionicons name={icon} size={23} color="#211A49"/>}<Text style={d.actionText}>{label}</Text></Pressable>;
 }

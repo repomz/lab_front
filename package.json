@@ -1,6 +1,6 @@
 {
   "name": "lab-front",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -8,6 +8,7 @@
     "web": "expo start --web",
     "build": "expo export --platform web && node scripts/patch-web-html.mjs && node scripts/verify-web-build.mjs",
     "typecheck": "tsc --noEmit",
+    "test:dynamics": "node scripts/test-dynamics.mjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

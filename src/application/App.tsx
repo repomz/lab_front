@@ -73,6 +73,7 @@ function AppContent() {
   const [user, setUser] = useState<User | null>(null);
   const [folder, setFolder] = useState<DocumentFolder>("laboratory");
   const [tab, setTab] = useState<Tab>("home");
+  const [aiListRequest,setAIListRequest]=useState(0);
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [selected, setSelected] = useState<Analysis | null>(null);
@@ -239,25 +240,26 @@ function AppContent() {
         title={user.role==="patient"?folders.find(item=>item.id===folder)?.title:undefined}
         onBack={user.role==="patient"?()=>setTab("home"):undefined}
         doctor={user.role === "doctor"}
+        allowDynamics={user.role==="patient"&&folder==="laboratory"}
         onOpen={setSelected}
         onUpload={() => setUpload({ uri: "", name: "" })}
       />
     ) : tab === "patients" ? (
       <DoctorPatients patientsAnalyses={analyses} consultations={consultations} onOpen={setSelected} onRefresh={() => refresh()} />
     ) : tab === "consultations" ? (
-      <AIWorkspace />
+      <AIWorkspace name={user.full_name} listRequest={aiListRequest} onUpload={()=>setUpload({uri:"",name:""})}/>
     ) : tab === "doctors" && user.role !== "patient" ? (
       <DoctorsScreen user={user} onUser={setUser} onRefresh={() => refresh()} initialDoctorID={focusDoctorID} onTargetHandled={() => setFocusDoctorID("")} onTargetBack={() => setTab("home")} />
     ) : tab === "schedule" ? (
       <DoctorSchedule user={user} compact={compact} onUser={setUser} />
     ) : tab === "ai" ? (
-      <AIWorkspace />
+      <AIWorkspace name={user.full_name} listRequest={aiListRequest} onUpload={()=>setUpload({uri:"",name:""})}/>
     ) : tab === "guides" ? (
       <DoctorConsultationInbox data={consultations} compact={compact} onRefresh={()=>refresh()} />
     ) : tab === "articles" ? (
       <ArticleManager user={user}/>
     ) : user.role === "patient" ? (
-      <AIWorkspace/>
+      <AIWorkspace name={user.full_name} listRequest={aiListRequest} onUpload={()=>setUpload({uri:"",name:""})}/>
     ) : (
       <Profile user={user} onUpdated={setUser} canDeleteAccount={!adminSession}/>
     );
@@ -343,7 +345,7 @@ function AppContent() {
       {adminSession && <AdminPreviewControl onReturn={async()=>{await setToken(adminSession.token);setUser(adminSession.user);setAdminSession(null);setTab("home");setAnalyses([]);setConsultations([])}}/>}
       {jobNotice&&<Pressable accessibilityRole="button" accessibilityLabel={`${jobNotice.title}. Открыть анализ`} style={s.jobNotice} onPress={()=>{setTab("analyses");setSelected(jobNotice.analysis);setJobNotice(null)}}><View style={s.jobNoticeIcon}><Ionicons name={isProcessingAnalysis(jobNotice.analysis)?"hourglass-outline":jobNotice.analysis.status==="awaiting_confirmation"?"checkmark-done-outline":"notifications-outline"} size={22} color={colors.brand}/></View><View style={s.jobNoticeCopy}><Text style={s.jobNoticeTitle}>{jobNotice.title}</Text><Text numberOfLines={2} style={s.jobNoticeText}>{jobNotice.text}</Text><Text style={s.jobNoticeAction}>{isProcessingAnalysis(jobNotice.analysis)?"Посмотреть ход":"Открыть результат"}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Закрыть уведомление" hitSlop={10} onPress={(event)=>{event.stopPropagation();setJobNotice(null)}}><Ionicons name="close" size={20} color={colors.muted}/></Pressable></Pressable>}
       </SafeAreaView>
-      {user.role==="patient" ? <PatientDock tab={tab} onTab={setTab} onUpload={()=>setUpload({uri:"",name:""})}/> : !desktop && <Bottom role={user.role} tab={tab} onTab={setTab}/>}
+      {user.role==="patient" ? <PatientDock onList={()=>setAIListRequest(value=>value+1)} tab={tab} onTab={setTab} onUpload={()=>setUpload({uri:"",name:""})}/> : !desktop && <Bottom role={user.role} tab={tab} onTab={setTab}/>}
     </View>
   );
 }

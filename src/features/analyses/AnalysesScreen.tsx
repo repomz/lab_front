@@ -8,6 +8,8 @@ import { colors } from "../../theme";
 import { s } from "../../styles";
 import { Button, Empty, Section, Segment, Status, analysisDate, date } from "../../components/ui";
 import { Modal, ScrollView } from "../../components/platform";
+import { documentDesign as d } from "./design";
+import { buildMarkerSeries, filterMarkerSeries, DynamicsFilter } from "./dynamics";
 import { markerStatusText } from "./report";
 
 const rubricOrder = ["Кровь", "Моча", "УЗИ", "КТ и МРТ", "Рентген", "Другие исследования", "Выписки", "Заключения", "Другие анализы"];
@@ -36,6 +38,7 @@ export function Analyses({
   onUpload,
   title,
   onBack,
+  allowDynamics = false,
 }: {
   compact: boolean;
   wide: boolean;
@@ -45,8 +48,11 @@ export function Analyses({
   onUpload: () => void;
   title?: string;
   onBack?: () => void;
+  allowDynamics?: boolean;
 }) {
   const [mode, setMode] = useState<"research" | "dynamics">("research");
+  const [collapsed,setCollapsed]=useState<Record<string,boolean>>({});
+  const [dynamicFilter,setDynamicFilter]=useState<DynamicsFilter>("all");
   const [rubric, setRubric] = useState("Все");
   const desktop = useWindowDimensions().width >= 960;
   const [marker, setMarker] = useState("");
@@ -67,36 +73,24 @@ export function Analyses({
       return leftIndex - rightIndex;
     });
   }, [data, rubric]);
-  const markerSeries = useMemo(() => {
-    const result = new Map<string, { name: string; points: Array<{ date: string; value: number; unit: string; status: string; reference: string }> }>();
-    data.filter((analysis)=>analysis.status==="ready").forEach((analysis) => analysis.markers.forEach((item) => {
-      if (item.value === undefined) return;
-      const reference = item.reference_text || [item.reference_min, item.reference_max].filter((value) => value !== undefined).join(" — ") || "—";
-      const key = item.canonical_name?.trim().toLocaleLowerCase("ru-RU") || item.name.trim().toLocaleLowerCase("ru-RU");
-      const current = result.get(key) || { name: item.name, points: [] };
-      current.points.push({ date: analysisDate(analysis), value: item.value, unit: item.unit || "", status: item.status, reference });
-      result.set(key, current);
-    }));
-    result.forEach((entry) => entry.points.sort((a,b) => a.date.localeCompare(b.date)));
-    return result;
-  }, [data]);
-  const dynamicEntries = useMemo(() => Array.from(markerSeries.entries()).map(([key, entry]) => ({ key, name: entry.name, points: entry.points, latest: entry.points[entry.points.length - 1]! })).filter((entry) => entry.name.toLocaleLowerCase("ru-RU").includes(dynamicQuery.trim().toLocaleLowerCase("ru-RU"))).sort((a,b) => a.name.localeCompare(b.name,"ru-RU")), [markerSeries, dynamicQuery]);
+  const markerSeries = useMemo(()=>buildMarkerSeries(data),[data]);
+  const dynamicEntries = useMemo(()=>filterMarkerSeries(markerSeries,dynamicQuery,dynamicFilter),[markerSeries,dynamicQuery,dynamicFilter]);
   const selectedMarker = marker ? markerSeries.get(marker) : undefined;
   const series = selectedMarker?.points || [];
   return (
     <View style={s.analysisPage}>
-    {onBack&&<View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={onBack}><Ionicons name="arrow-back" size={25}/></Pressable><Text style={s.fullScreenTitle}>{title}</Text><View style={s.headerSpacer}/></View>}
+    {(onBack||allowDynamics)&&<View style={s.fullScreenHeader}><Pressable accessibilityRole="button" accessibilityLabel="Назад" style={s.iconButton} onPress={()=>mode==="dynamics"?setMode("research"):onBack?.()}><Ionicons name="arrow-back" size={25}/></Pressable><Text style={s.fullScreenTitle}>{mode==="dynamics"?"Динамика показателей":title||"Анализы"}</Text>{allowDynamics&&mode==="research"?<Pressable accessibilityRole="button" accessibilityLabel="Динамика показателей" style={s.iconButton} onPress={()=>setMode("dynamics")}><Ionicons name="stats-chart-outline" size={24} color={colors.ink}/></Pressable>:<View style={s.headerSpacer}/>}</View>}
     <ScrollView contentContainerStyle={[s.primaryTabScroll, compact && s.primaryTabScrollCompact, wide && s.primaryTabScrollWide, s.analysisScrollContent, !doctor && mode === "research" && desktop && s.analysisScrollWithDockDesktop]}>
-      {!doctor && <View style={s.segment}><Segment active={mode === "research"} label="Документы" icon="documents-outline" onPress={() => setMode("research")} /><Segment active={mode === "dynamics"} label="Динамика" icon="stats-chart-outline" onPress={() => setMode("dynamics")} /></View>}
       {(doctor || mode === "research") && categories.length > 1 ? <ScrollView horizontal style={s.rubricViewport} showsHorizontalScrollIndicator={false} contentContainerStyle={s.rubricBar}>
         {["Все", ...categories].map((category) => { const active = rubric === category; const meta = rubricMeta[category]; return <Pressable key={category} accessibilityRole="button" accessibilityState={{selected:active}} onPress={()=>setRubric(category)} style={({pressed})=>[s.rubricChip,active&&s.rubricChipActive,pressed&&s.pressablePressed]}>{meta ? <Ionicons name={meta.icon} size={17} color={active?colors.white:colors.muted}/> : null}<Text style={[s.rubricChipText,active&&s.rubricChipTextActive]}>{category}</Text></Pressable>; })}
       </ScrollView> : null}
       {!doctor && !onBack && mode === "research" && !desktop ? <View nativeID="analysis-upload-inline" style={s.uploadInline}><Button label="Загрузить анализ" kind="primary" icon="cloud-upload-outline" onPress={onUpload}/></View> : null}
       {data.length && (doctor || mode === "research") ? (
-        <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><View style={s.groupTitleRow}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View>{rubricMeta[group]?.description ? <Text style={s.groupDescription}>{rubricMeta[group].description}</Text> : null}<View style={[s.compactCardGrid,wide&&s.compactCardGridWide]}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} wide={wide} onPress={() => onOpen(analysis)} />)}</View></View>)}</View>
+        <View style={s.analysisGroups}>{groups.map(([group, items]) => <View key={group} style={s.analysisGroup}><Pressable accessibilityRole="button" accessibilityLabel={`${collapsed[group]?"Развернуть":"Свернуть"} ${group}`} accessibilityState={{expanded:!collapsed[group]}} onPress={()=>setCollapsed(current=>({...current,[group]:!current[group]}))} style={d.groupToggle}><View style={d.groupCopy}><Text style={s.groupTitle}>{group}</Text><Text style={s.groupCount}>{items.length}</Text></View><Ionicons name={collapsed[group]?"chevron-down":"chevron-up"} size={22} color={colors.ink}/></Pressable>{rubricMeta[group]?.description ? <Text style={s.groupDescription}>{rubricMeta[group].description}</Text> : null}{!collapsed[group]&&<View style={[s.compactCardGrid,wide&&s.compactCardGridWide]}>{items.map((analysis) => <AnalysisCard key={analysis.id} item={analysis} wide={wide} onPress={() => onOpen(analysis)} />)}</View>}</View>)}</View>
       ) : data.length && mode === "dynamics" ? (
         <View style={s.dynamicsScreen}>
-          <View style={s.doctorSearch}><Ionicons name="search" size={20} color={colors.muted}/><TextInput style={s.doctorSearchInput} value={dynamicQuery} onChangeText={setDynamicQuery} placeholder="Например, креатинин"/></View>
+          <View style={s.doctorSearch}><Ionicons name="search" size={20} color={colors.muted}/><TextInput style={s.doctorSearchInput} value={dynamicQuery} onChangeText={setDynamicQuery} accessibilityLabel="Поиск показателя" placeholder="Начало названия показателя"/></View>
+          <View style={d.filters}>{([["all","Все"],["normal","В норме"],["abnormal","Вне нормы"]] as const).map(([value,label])=><Pressable key={value} accessibilityRole="button" accessibilityState={{selected:dynamicFilter===value}} onPress={()=>setDynamicFilter(value)} style={[d.filter,dynamicFilter===value&&d.filterActive]}><Text style={[d.filterText,dynamicFilter===value&&d.filterTextActive]}>{label}</Text></Pressable>)}</View><Text style={d.hint}>По последнему результату каждого показателя. Без референса — только в «Все».</Text>
           <View style={[s.dynamicCards,wide&&s.dynamicCardsWide]}>{dynamicEntries.map((entry) => <DynamicMarkerCard key={entry.key} name={entry.name} wide={wide} onPress={() => setMarker(entry.key)}/>)}</View>
           {!dynamicEntries.length && <Empty icon="stats-chart-outline" title="Показатель не найден" text="Измените запрос или загрузите исследование с этим показателем."/>}
         </View>
@@ -147,6 +141,7 @@ export function AnalysisCard({
       accessibilityLabel={`Открыть результат: ${item.title}`}
       style={({ pressed }) => [
         s.analysisCard,
+        d.card,
         wide && s.wideGridCard,
         processing && s.analysisCardProcessing,
         verification && s.analysisCardReview,
